@@ -37,21 +37,29 @@ static const char *packet_type_filedesc = "PAR 2.0\0FileDesc";
 static const char *packet_type_ifsc     = "PAR 2.0\0IFSC\0\0\0\0";
 static const char *packet_type_recovery = "PAR 2.0\0RecvSlic";
 
+struct Md5 {
+    uint8_t data[MD5_DIGEST_LENGTH];  // must be unsigned for compare_md5
+} __attribute__((packed));
+
+struct Crc32 {
+    uint8_t data[CRC32_LENGTH];
+};
+
 // Just blindly assuming structs are packed here.
 // Also we assume we're on a little-endian system.
 struct PacketHeader {
-    uint8_t  magic[8];
-    uint64_t length;   /* must be multiple of 4 */
-    uint8_t  md5[MD5_DIGEST_LENGTH];
-    uint8_t  recovery_set_id[MD5_DIGEST_LENGTH];
-    uint8_t  type[16];
+    uint8_t    magic[8];
+    uint64_t   length;   /* must be multiple of 4 */
+    struct Md5 md5;
+    struct Md5 recovery_set_id;
+    uint8_t    type[16];
 } __attribute__((packed));
 
 struct MainPacketBody {
     uint64_t slice_size;
     uint32_t file_count;
-    uint8_t  md5[MAX_FILE_COUNT][MD5_DIGEST_LENGTH];
-}  __attribute__((packed));
+    struct Md5 file_ids[MAX_FILE_COUNT];
+} __attribute__((packed));
 
 struct MainPacket {
     struct PacketHeader header;
@@ -59,9 +67,9 @@ struct MainPacket {
 } __attribute__((packed));
 
 struct FileDescriptionPacketBody {
-    uint8_t  id[MD5_DIGEST_LENGTH];
-    uint8_t  md5[MD5_DIGEST_LENGTH];
-    uint8_t  md5_16k[MD5_DIGEST_LENGTH];
+    struct Md5 id;
+    struct Md5 md5;
+    struct Md5 md5_16k;
     uint64_t length;
     char     name[];
 } __attribute__((packed));
@@ -72,13 +80,13 @@ struct FileDescriptionPacket {
 } __attribute__((packed));
 
 struct SliceChecksums {
-    uint8_t md5[MD5_DIGEST_LENGTH];
-    uint8_t crc32[CRC32_LENGTH];
+    struct Md5   md5;
+    struct Crc32 crc32;
 } __attribute__((packed));
 
 // Input File Slice Checksums
 struct IfscPacketBody {
-    uint8_t file_id[MD5_DIGEST_LENGTH];
+    struct Md5 file_id;
     struct SliceChecksums checksums[];
 } __attribute__((packed));
 
@@ -103,8 +111,8 @@ struct InputFile {
     int      fd;
     void    *mapped_addr;
     size_t   mapped_size;
-    uint8_t  md5_16k[MD5_DIGEST_LENGTH];
-    uint8_t  id[MD5_DIGEST_LENGTH];  // must be unsigned for compare_input_files()
+    struct Md5 md5_16k;
+    struct Md5 id;
 };
 
 struct InputSlice {
@@ -122,8 +130,7 @@ static struct InputSlice input_blocks[MAX_BLOCK_COUNT];
 
 static struct RecoverySlicePacket *recovery_blocks[MAX_BLOCK_COUNT];
 
-static uint8_t recovery_set_id[MD5_DIGEST_LENGTH];
-
+static struct Md5 recovery_set_id;
 
 static struct MainPacket main_packet;
 
@@ -136,11 +143,34 @@ static long long arg_block_size     = -1;
 static long long arg_redundancy     = -1;
 static long long arg_output_blocks  = -1;
 
-static void debug_print_hash(const uint8_t md5[MD5_DIGEST_LENGTH]) {
-    for (int i = 0; i < MD5_DIGEST_LENGTH; ++i) {
-        fprintf(stderr, "%02x", md5[i]);
-    }
+static struct Crc32 wrap_crc32(uint32_t crc32) {
+    // Store in little endian byte order.
+    struct Crc32 res;
+    res.data[0] = (crc32 >>  0) & 0xff;
+    res.data[1] = (crc32 >>  8) & 0xff;
+    res.data[2] = (crc32 >> 16) & 0xff;
+    res.data[3] = (crc32 >> 24) & 0xff;
+    return res;
+}
+
+static void debug_print_hex(const void *data, size_t size) {
+    const unsigned char *p = data;
+    while (size--) fprintf(stderr, "%02x", *p++);
     fprintf(stderr, "\n");
+}
+
+static void debug_print_md5(const struct Md5 *md5) {
+    debug_print_hex(md5->data, MD5_DIGEST_LENGTH);
+}
+
+// Compare two MD5 hashes as if they were integers in little endian byte order,
+// i.e., the last byte is the most significant one.
+static int compare_md5(const struct Md5 *a, const struct Md5 *b) {
+    for (int i = MD5_DIGEST_LENGTH - 1; i >= 0; --i) {
+        int diff = a->data[i] - b->data[i];
+        if (diff != 0) return diff;
+    }
+    return 0;
 }
 
 static void show_usage() {
@@ -183,7 +213,7 @@ static void fill_packet_header(
     assert(body_length % 4 == 0);
     memcpy(header->magic, "PAR2\0PKT", 8);
     header->length = body_length + sizeof(struct PacketHeader);
-    memcpy(header->recovery_set_id, recovery_set_id, MD5_DIGEST_LENGTH);
+    header->recovery_set_id = recovery_set_id;
     memcpy(header->type, packet_type, 16);
 
     MD5_CTX md5_ctx;
@@ -191,7 +221,7 @@ static void fill_packet_header(
     MD5_Update(&md5_ctx, &header->recovery_set_id,
             sizeof(struct PacketHeader) - offsetof(struct PacketHeader, recovery_set_id));
     MD5_Update(&md5_ctx, body_data, body_length);
-    MD5_Final(header->md5, &md5_ctx);
+    MD5_Final(header->md5.data, &md5_ctx);
 }
 
 static int write_packet(struct PacketHeader *header, const void *body_data) {
@@ -228,14 +258,14 @@ static int write_file_description_packet(const struct InputFile *input_file) {
         perror("calloc");
         return -1;
     }
-    memcpy(packet->body.id, input_file->id, MD5_DIGEST_LENGTH);
-    memcpy(packet->body.md5_16k, input_file->md5_16k, MD5_DIGEST_LENGTH);
+    packet->body.id = input_file->id;
+    packet->body.md5_16k = input_file->md5_16k;
     packet->body.length = input_file->size;
     strncpy(packet->body.name, input_file->name, name_len);
     MD5_CTX md5_ctx;
     MD5_Init(&md5_ctx);
     MD5_Update(&md5_ctx, input_file->mapped_addr, input_file->size);
-    MD5_Final(packet->body.md5, &md5_ctx);
+    MD5_Final(packet->body.md5.data, &md5_ctx);
     fill_packet_header(&packet->header, packet_type_filedesc,
             &packet->body, sizeof(struct FileDescriptionPacketBody) + name_len);
     int res = write_packet(&packet->header, &packet->body);
@@ -255,19 +285,18 @@ static int write_ifsc_packet(const struct InputFile *input_file, struct InputSli
         perror("calloc");
         return -1;
     }
-    memcpy(packet->body.file_id, input_file->id, MD5_DIGEST_LENGTH);
+    packet->body.file_id = input_file->id;
     for (uint64_t i = 0; i < slices; ++i) {
         assert(size > 0);
 
-        // Calculate CRC-32 of slice (assume we are on a little endian system so we can just copy)
-        uint32_t crc = crc32(data, arg_block_size);
-        memcpy(packet->body.checksums[i].crc32, &crc, CRC32_LENGTH);
+        // Calculate CRC-32 of slice
+        packet->body.checksums[i].crc32 = wrap_crc32(crc32(data, arg_block_size));
 
         // Calculate MD5 hash of slice
         MD5_CTX md5_ctx;
         MD5_Init(&md5_ctx);
         MD5_Update(&md5_ctx, data, arg_block_size);
-        MD5_Final(packet->body.checksums[i].md5, &md5_ctx);
+        MD5_Final(packet->body.checksums[i].md5.data, &md5_ctx);
 
         (*slice_ptr)++->addr = data;
 
@@ -289,7 +318,7 @@ static void create_main_packet() {
     main_packet.body.slice_size = arg_block_size;
     main_packet.body.file_count = input_file_count;
     for (int i = 0; i < input_file_count; ++i) {
-        memcpy(main_packet.body.md5[i], input_files[i].id, MD5_DIGEST_LENGTH);
+        main_packet.body.file_ids[i] = input_files[i].id;
     }
 
     // Generate recovery_set_id as the hash of the body of the main packet.
@@ -298,7 +327,7 @@ static void create_main_packet() {
     MD5_CTX md5_ctx;
     MD5_Init(&md5_ctx);
     MD5_Update(&md5_ctx, &main_packet.body, body_length);
-    MD5_Final(recovery_set_id, &md5_ctx);
+    MD5_Final(recovery_set_id.data, &md5_ctx);
 
     // Now we can use it to fill in the header
     fill_packet_header(&main_packet.header, packet_type_main, &main_packet.body, body_length);
@@ -410,14 +439,14 @@ static void calculate_input_file_ids() {
         MD5_CTX md5_ctx;
         MD5_Init(&md5_ctx);
         MD5_Update(&md5_ctx, file->mapped_addr, file->size < 16384 ? file->size : 16384);
-        MD5_Final(file->md5_16k, &md5_ctx);
+        MD5_Final(file->md5_16k.data, &md5_ctx);
 
         // Calculate file ID as MD5 has of md5_16k, size, and name.
         MD5_Init(&md5_ctx);
-        MD5_Update(&md5_ctx, file->md5_16k, MD5_DIGEST_LENGTH);
+        MD5_Update(&md5_ctx, file->md5_16k.data, MD5_DIGEST_LENGTH);
         MD5_Update(&md5_ctx, &file->size, sizeof(file->size));
         MD5_Update(&md5_ctx, file->name, strlen(file->name));
-        MD5_Final(file->id, &md5_ctx);
+        MD5_Final(file->id.data, &md5_ctx);
     }
 }
 
@@ -491,12 +520,9 @@ static void generate_recovery_data() {
 }
 
 static int compare_input_files_by_id(const void *a, const void *b) {
-    const struct InputFile *p = a, *q = b;
-    for (int i = MD5_DIGEST_LENGTH - 1; i >= 0; --i) {
-        int diff = p->id[i] - q->id[i];
-        if (diff != 0) return diff;
-    }
-    return 0;
+    return compare_md5(
+        &((const struct InputFile *)a)->id,
+        &((const struct InputFile *)b)->id);
 }
 
 static void sort_input_files_by_id() {
