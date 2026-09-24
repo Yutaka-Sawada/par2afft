@@ -142,6 +142,7 @@ static long long arg_input_blocks   = -1;
 static long long arg_block_size     = -1;
 static long long arg_redundancy     = -1;
 static long long arg_output_blocks  = -1;
+static long long arg_output_start   =  0;
 
 static struct Crc32 wrap_crc32(uint32_t crc32) {
     // Store in little endian byte order.
@@ -184,6 +185,7 @@ static void show_usage() {
         "    -s<n>   block size\n"
         "    -r<n>   redundancy percentage (default 5)\n"
         "    -c<n>   recovery block count (default 100)\n"
+        "    -f<n>   first recovery block number (default 0)"
         "Note: space after options is not allowed.\n",
         stderr);
 }
@@ -201,6 +203,9 @@ static int parse_option(const char *arg) {
         break;
     case 'c':
         if (sscanf(&arg[2], "%lld", &arg_output_blocks) == 1) return 0;
+        break;
+    case 'f':
+        if (sscanf(&arg[2], "%lld", &arg_output_start) == 1) return 0;
         break;
     }
     fprintf(stderr, "Invalid option argument: %s\n", arg);
@@ -477,9 +482,7 @@ static int reserve_output_slices(int slice_count) {
         struct RecoverySlicePacket *packet = (struct RecoverySlicePacket*)ptr;
         ptr += recovery_packet_size;
         recovery_blocks[i] = packet;
-        // TODO: support starting from a different starting exponent
-        // (but should not allow exponent to exceed 32768/65536?)
-        packet->body.exponent = i;
+        packet->body.exponent = arg_output_start + i;
     }
     return 0;
 }
@@ -708,6 +711,12 @@ int parse_arguments(int argc, char *argv[]) {
         return -1;
     } else if (arg_output_blocks < 0 || arg_output_blocks > MAX_BLOCK_COUNT) {
         fprintf(stderr, "Invalid recovery block count: %lld\n", arg_input_blocks);
+        return -1;
+    }
+    if (arg_output_start < 0 || arg_output_start > MAX_BLOCK_COUNT) {
+        fprintf(stderr, "Invalid recovery block start: %lld (must be between 0 "
+            "and %lld when using %lld recovery blocks)\n",
+            arg_output_start, MAX_BLOCK_COUNT - arg_output_blocks, arg_output_blocks);
         return -1;
     }
 
