@@ -37,4 +37,32 @@ static inline void *w1rand_fill(void *buf, size_t len, uint64_t *s) {
     return buf;
 }
 
+typedef void (*w1rand_swap_fn)(void *ctx, size_t i, size_t j);
+
+// Uses w1rand() to shuffle the first `m` of a total of `n` elements.
+//
+// `m` must be less than or equal to `n`.
+//
+// This function will call swap(i, j, ctx) up to `m` times to indicate `i` and
+// `j` should be swapped, where 0 <= i < j < n.
+//
+// Afterwards, the first `m` elements are a random selection of all `n` elements
+// in a random order.
+//
+// To shuffle the entire array, call w1rand_shuffle() defined below.
+static inline void w1rand_shuffle_prefix(
+        size_t m, size_t n, uint64_t *rng_state,
+        w1rand_swap_fn swap, void *ctx)
+{
+    for (size_t i = 0; i < m; ++i) {
+        size_t k = w1rand(rng_state) % (n - i);
+        if (k != 0) swap(ctx, i, i + k);
+    }
+}
+
+// Shuffles all `n` elements. See w1rand_shuffle_prefix() for details.
+static inline void w1rand_shuffle(size_t n, uint64_t *rng_state, w1rand_swap_fn swap, void *ctx) {
+    w1rand_shuffle_prefix(n - 1, n, rng_state, swap, ctx);
+}
+
 #endif // ndef W1RAND_H_INCLUDED
