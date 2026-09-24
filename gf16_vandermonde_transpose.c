@@ -802,8 +802,7 @@ int gf16_vandermonde_transpose_test() {
      */
     printf("\nTest 2: pseudorandom vector, selected direct checks\n");
     uint64_t rand_state = 123456789;
-    for (uint32_t x = 0; x < FIELD_ORDER; ++x)
-        a[x] = (gf16_t)w1rand(&rand_state);
+    w1rand_fill(a, FIELD_ORDER * sizeof(gf16_t), &rand_state);
 
     gf16_vandermonde_transpose_multiply(a, y);
 
@@ -823,8 +822,7 @@ int gf16_vandermonde_transpose_test() {
      * for an independent deterministic vector c.
      */
     printf("\nTest 3: transpose inner-product identity\n");
-    for (uint32_t k = 0; k < FIELD_ORDER; ++k)
-        c[k] = (gf16_t)w1rand(&rand_state);
+    w1rand_fill(c, FIELD_ORDER * sizeof(gf16_t), &rand_state);
 
     vandermonde_forward(c, Vc);
 

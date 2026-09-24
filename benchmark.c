@@ -12,9 +12,6 @@ int main() {
     gf16_init();
     gf16_vandermonde_transpose_init();
 
-    // I use this property below to randomly fill the buffer.
-    assert(sizeof(uint64_t) % sizeof(gf16_t) == 0);
-
     int niter = 5000;
     printf("Running benchmark (%d iterations)...\n", niter);
     clock_t clock_begin = clock();
@@ -24,10 +21,7 @@ int main() {
     for (int iter = 0; iter < niter; ++iter) {
         // Fill buffer with pseudo-random data
         gf16_t a[1 << 16];
-        for (size_t i = 0; i < (1 << 16); i += sizeof(uint64_t)/sizeof(gf16_t)) {
-            uint64_t value = w1rand(&rng_state);
-            memcpy(&a[i], &value, sizeof(value));
-        }
+        w1rand_fill(a, sizeof(a), &rng_state);
         input_bytes += sizeof(a);
 
         // Perform fast multiplication.
