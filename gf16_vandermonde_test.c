@@ -275,5 +275,14 @@ int main()
     gf16_init();
     gf16_vandermonde_transpose_init();
     build_subspace_shapes();
+
+    /* Print out shape table contents for manual unrolling.
+    for (int i = 0; i < GF16_BITS; ++i) {
+        printf("i=%d count=%d", i, shape[i].count);
+        for (int j = 0; j < shape[i].count; ++j) printf(" %d", shape[i].exponent[j]);
+        printf("\n");
+    }
+    */
+
     return gf16_vandermonde_transpose_test();
 }

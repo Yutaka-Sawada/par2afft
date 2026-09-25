@@ -541,12 +541,4 @@ void gf16_vandermonde_transpose_init() {
 #endif
     build_subspace_poly_for_afft();
     build_cantor_permutation();
-
-    /* Print out shape table contents for manual unrolling.
-for (int i = 0; i < GF16_BITS; ++i) {
-    printf("i=%d count=%d", i, shape[i].count);
-    for (int j = 0; j < shape[i].count; ++j) printf(" %d", shape[i].exponent[j]);
-    printf("\n");
-}
-    */
 }
