@@ -535,10 +535,15 @@ void gf16_vandermonde_transpose_multiply(const gf16_t a[GF16_ORDER], gf16_t y[GF
 }
 
 void gf16_vandermonde_transpose_init() {
+    static char initialized = 0;
+    if (initialized) return;
+
     generate_cantor_basis();
 #if SUBSPACE_POLY_LUT
     build_subspace_poly_eval_tables();
 #endif
     build_subspace_poly_for_afft();
     build_cantor_permutation();
+
+    initialized = 1;
 }
