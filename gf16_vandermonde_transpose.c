@@ -8,9 +8,6 @@
 #include <assert.h>
 #include <stdint.h>
 
-#define FIELD_BITS GF16_BITS
-#define FIELD_ORDER GF16_ORDER
-
 #ifndef ITERATIVE_AFFT
 #define ITERATIVE_AFFT 1
 #endif
@@ -21,20 +18,20 @@
 
 typedef struct {
     unsigned count;
-    uint32_t exponent[FIELD_BITS];
+    uint32_t exponent[GF16_BITS];
 } subspace_shape_t;
 
-gf16_t cantor_permutation[FIELD_ORDER];
+gf16_t cantor_permutation[GF16_ORDER];
 
-static gf16_t beta[FIELD_BITS];
+static gf16_t beta[GF16_BITS];
 
 // beta_prefix[i] = is the XOR sum of the first i elements of beta
 // for 0 <= i <= 16. Additionally, we have beta_prefix[17] = beta_prefix[16]
 // which allows us to drop bounds checking.
-static gf16_t beta_prefix[FIELD_BITS + 2];
+static gf16_t beta_prefix[GF16_BITS + 2];
 
 #if !ITERATIVE_AFFT || GF16_VANDERMONDE_TESTS_INCLUDED
-static subspace_shape_t shape[FIELD_BITS];
+static subspace_shape_t shape[GF16_BITS];
 #endif
 
 #if SUBSPACE_POLY_LUT
@@ -42,8 +39,8 @@ static gf16_t subspace_poly_eval_lo[16][256];
 static gf16_t subspace_poly_eval_hi[16][256];
 #endif
 
-static gf16_t subspace_poly_for_afft[FIELD_ORDER];
-static const gf16_t *subspace_poly_by_level[FIELD_BITS];
+static gf16_t subspace_poly_for_afft[GF16_ORDER - 1];
+static const gf16_t *subspace_poly_by_level[GF16_BITS];
 
 /*
  * Full-field transpose Vandermonde example over
@@ -80,7 +77,7 @@ static gf16_t gf16_trace(gf16_t a)
     gf16_t t = 0;
     gf16_t x = a;
 
-    for (unsigned i = 0; i < FIELD_BITS; ++i) {
+    for (unsigned i = 0; i < GF16_BITS; ++i) {
         t ^= x;
         x = gf16_sqr(x);
     }
@@ -107,7 +104,7 @@ static void generate_cantor_basis()
 {
     gf16_t top = 0;
 
-    for (uint32_t x = 1; x < FIELD_ORDER; ++x) {
+    for (uint32_t x = 1; x < GF16_ORDER; ++x) {
         if (gf16_trace((gf16_t)x) == 1) {
             top = (gf16_t)x;
             break;
@@ -116,25 +113,25 @@ static void generate_cantor_basis()
 
     assert(top != 0);
 
-    beta[FIELD_BITS - 1] = top;
-    for (unsigned i = FIELD_BITS - 1; i > 0; --i)
+    beta[GF16_BITS - 1] = top;
+    for (unsigned i = GF16_BITS - 1; i > 0; --i)
         beta[i - 1] = gf16_sqr(beta[i]) ^ beta[i];
 
     assert(beta[0] == 1);
 
-    for (unsigned i = 1; i < FIELD_BITS; ++i)
+    for (unsigned i = 1; i < GF16_BITS; ++i)
         assert((gf16_sqr(beta[i]) ^ beta[i]) == beta[i - 1]);
 
     beta_prefix[0] = 0;
-    for (unsigned j = 0; j < FIELD_BITS; ++j)
+    for (unsigned j = 0; j < GF16_BITS; ++j)
         beta_prefix[j + 1] = beta_prefix[j] ^ beta[j];
-    beta_prefix[FIELD_BITS + 1] = beta_prefix[FIELD_BITS];
+    beta_prefix[GF16_BITS + 1] = beta_prefix[GF16_BITS];
 }
 
 static void build_cantor_permutation()
 {
     cantor_permutation[0] = 0;
-    for (uint32_t j = 1; j < FIELD_ORDER; ++j) {
+    for (uint32_t j = 1; j < GF16_ORDER; ++j) {
         const unsigned b = __builtin_ctz(j);
         cantor_permutation[j] = cantor_permutation[j ^ (1 << b)] ^ beta[b];
     }
@@ -162,7 +159,7 @@ static void build_cantor_permutation()
 
 static void build_subspace_shapes()
 {
-    for (unsigned i = 0; i < FIELD_BITS; ++i) {
+    for (unsigned i = 0; i < GF16_BITS; ++i) {
         shape[i].count = 0;
         for (unsigned j = 0; j < i; ++j) {
             if ((j & ~i) == 0) {
@@ -224,9 +221,9 @@ static gf16_t subspace_poly_eval(unsigned i, gf16_t x)
 
 static void build_subspace_poly_for_afft(void) {
     gf16_t *p = subspace_poly_for_afft;
-    for (int i = 0; i < FIELD_BITS; ++i) {
+    for (int i = 0; i < GF16_BITS; ++i) {
         subspace_poly_by_level[i] = p;
-        const int block_count = FIELD_ORDER >> (i + 1);
+        const int block_count = GF16_ORDER >> (i + 1);
         gf16_t alpha = 0;
         for (int block_index = 0; block_index < block_count; ++block_index) {
             gf16_t c = subspace_poly_eval(i, alpha);
@@ -238,6 +235,7 @@ static void build_subspace_poly_for_afft(void) {
             alpha ^= beta_prefix[i + z + 2] ^ beta_prefix[i + 1];
         }
     }
+    assert(p - subspace_poly_for_afft == GF16_ORDER - 1);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -318,7 +316,7 @@ static void monomial_to_novel_transpose_rec(gf16_t *a, unsigned m)
 }
 
 #define monomial_to_novel_transpose(a) \
-        monomial_to_novel_transpose_rec(a, FIELD_BITS)
+        monomial_to_novel_transpose_rec(a, GF16_BITS)
 
 #else
 
@@ -351,22 +349,22 @@ which the compiler could not predict. I left in some of the "silly" loops like
 "for (int t = 0; t < 2; ++t)" since the compiler is smart enough to unroll
 those itself.
 */
-static void monomial_to_novel_transpose(gf16_t a[FIELD_ORDER])
+void monomial_to_novel_transpose(gf16_t a[GF16_ORDER])
 {
     // i == 1
-    for (int j = 0; j < FIELD_ORDER; j += 4) {
+    for (int j = 0; j < GF16_ORDER; j += 4) {
         for (int t = 0; t < 2; ++t) {
             a[j + 2 + t] ^= a[j + t + 1];
         }
     }
     // i == 2
-    for (int j = 0; j < FIELD_ORDER; j += 8) {
+    for (int j = 0; j < GF16_ORDER; j += 8) {
         for (int t = 0; t < 4; ++t) {
             a[j + 4 + t] ^= a[j + t + 1];
         }
     }
     // i == 3
-    for (int j = 0; j < FIELD_ORDER; j += 16) {
+    for (int j = 0; j < GF16_ORDER; j += 16) {
         for (int t = 0; t < 8; ++t) {
             a[j + 8 + t] ^=
                 a[j + t + 1] ^
@@ -375,13 +373,13 @@ static void monomial_to_novel_transpose(gf16_t a[FIELD_ORDER])
         }
     }
     // i == 4
-    for (int j = 0; j < FIELD_ORDER; j += 32) {
+    for (int j = 0; j < GF16_ORDER; j += 32) {
         for (int t = 0; t < 16; ++t) {
             a[j + 16 + t] ^= a[j + t + 1];
         }
     }
     // i == 5
-    for (int j = 0; j < FIELD_ORDER; j += 64) {
+    for (int j = 0; j < GF16_ORDER; j += 64) {
         for (int t = 0; t < 32; ++t) {
             a[j + 32 + t] ^=
                 a[j + t +  1] ^
@@ -390,7 +388,7 @@ static void monomial_to_novel_transpose(gf16_t a[FIELD_ORDER])
         }
     }
     // i == 6
-    for (int j = 0; j < FIELD_ORDER; j += 128) {
+    for (int j = 0; j < GF16_ORDER; j += 128) {
         for (int t = 0; t < 64; ++t) {
             a[j + 64 + t] ^=
                 a[j + t +  1] ^
@@ -399,7 +397,7 @@ static void monomial_to_novel_transpose(gf16_t a[FIELD_ORDER])
         }
     }
     // i == 7
-    for (int j = 0; j < FIELD_ORDER; j += 256) {
+    for (int j = 0; j < GF16_ORDER; j += 256) {
         for (int t = 0; t < 128; ++t) {
             a[j + 128 + t] ^=
                 a[j + t +  1] ^
@@ -412,13 +410,13 @@ static void monomial_to_novel_transpose(gf16_t a[FIELD_ORDER])
         }
     }
     // i == 8
-    for (int j = 0; j < FIELD_ORDER; j += 512) {
+    for (int j = 0; j < GF16_ORDER; j += 512) {
         for (int t = 0; t < 256; ++t) {
             a[j + 256 + t] ^= a[j + t +  1];
         }
     }
     // i == 9
-    for (int j = 0; j < FIELD_ORDER; j += 1024) {
+    for (int j = 0; j < GF16_ORDER; j += 1024) {
         for (int t = 0; t < 512; ++t) {
             a[j + 512 + t] ^=
                 a[j + t +   1] ^
@@ -427,7 +425,7 @@ static void monomial_to_novel_transpose(gf16_t a[FIELD_ORDER])
         }
     }
     // i == 10
-    for (int j = 0; j < FIELD_ORDER; j += 2048) {
+    for (int j = 0; j < GF16_ORDER; j += 2048) {
         for (int t = 0; t < 1024; ++t) {
             a[j + 1024 + t] ^=
                 a[j + t +   1] ^
@@ -436,7 +434,7 @@ static void monomial_to_novel_transpose(gf16_t a[FIELD_ORDER])
         }
     }
     // i == 11
-    for (int j = 0; j < FIELD_ORDER; j += 4096) {
+    for (int j = 0; j < GF16_ORDER; j += 4096) {
         for (int t = 0; t < 2048; ++t) {
             a[j + 2048 + t] ^=
                 a[j + t +    1] ^
@@ -449,7 +447,7 @@ static void monomial_to_novel_transpose(gf16_t a[FIELD_ORDER])
         }
     }
     // i == 12
-    for (int j = 0; j < FIELD_ORDER; j += 8192) {
+    for (int j = 0; j < GF16_ORDER; j += 8192) {
         for (int t = 0; t < 4096; ++t) {
             a[j + 4096 + t] ^=
                 a[j + t +    1] ^
@@ -458,7 +456,7 @@ static void monomial_to_novel_transpose(gf16_t a[FIELD_ORDER])
         }
     }
     // i == 13
-    for (int j = 0; j < FIELD_ORDER; j += 16384) {
+    for (int j = 0; j < GF16_ORDER; j += 16384) {
         for (int t = 0; t < 8192; ++t) {
             a[j + 8192 + t] ^=
                 a[j + t +    1] ^
@@ -471,7 +469,7 @@ static void monomial_to_novel_transpose(gf16_t a[FIELD_ORDER])
         }
     }
     // i == 14
-    for (int j = 0; j < FIELD_ORDER; j += 32768) {
+    for (int j = 0; j < GF16_ORDER; j += 32768) {
         for (int t = 0; t < 16384; ++t) {
             a[j + 16384 + t] ^=
                 a[j + t +    1] ^
@@ -592,15 +590,15 @@ static void additive_fft_transpose_rec(gf16_t *a, unsigned m, gf16_t alpha)
     }
 }
 
-#define additive_fft_transpose(a) additive_fft_transpose_rec(a, FIELD_BITS, 0)
+#define additive_fft_transpose(a) additive_fft_transpose_rec(a, GF16_BITS, 0)
 
 #else  // ITERATIVE_AFFT
 
 // Iterative implementation of additive_fft_transpose_rec() follows.
 
 __attribute__((always_inline))
-static inline void additive_fft_transpose_level_i(gf16_t *a, const int i) {
-    const uint32_t n = FIELD_ORDER;
+static inline void additive_fft_transpose_level_i(gf16_t a[GF16_ORDER], const int i) {
+    const uint32_t n = GF16_ORDER;
 
     const int h          = 1 << i;
     const int block_size = 2 << i;
@@ -622,7 +620,7 @@ static inline void additive_fft_transpose_level_i(gf16_t *a, const int i) {
     }
 }
 
-static void additive_fft_transpose(gf16_t *a)
+static void additive_fft_transpose(gf16_t a[GF16_ORDER])
 {
     additive_fft_transpose_level_i(a,  0);
     additive_fft_transpose_level_i(a,  1);
@@ -649,9 +647,9 @@ static void additive_fft_transpose(gf16_t *a)
 /* ------------------------------------------------------------------------- */
 
 /* Compute y[k] = sum_x a[x] x^k. */
-void gf16_vandermonde_transpose_multiply(const gf16_t a[FIELD_ORDER], gf16_t y[FIELD_ORDER]) {
+void gf16_vandermonde_transpose_multiply(const gf16_t a[GF16_ORDER], gf16_t y[GF16_ORDER]) {
     /* P: gather external field-label order into Cantor-coordinate order. */
-    for (uint32_t j = 0; j < FIELD_ORDER; ++j)
+    for (uint32_t j = 0; j < GF16_ORDER; ++j)
         y[j] = a[cantor_permutation[j]];
 
     additive_fft_transpose(y);
@@ -670,7 +668,7 @@ void gf16_vandermonde_transpose_init() {
     build_cantor_permutation();
 
     /* Print out shape table contents for manual unrolling.
-for (int i = 0; i < FIELD_BITS; ++i) {
+for (int i = 0; i < GF16_BITS; ++i) {
     printf("i=%d count=%d", i, shape[i].count);
     for (int j = 0; j < shape[i].count; ++j) printf(" %d", shape[i].exponent[j]);
     printf("\n");
@@ -689,20 +687,20 @@ for (int i = 0; i < FIELD_BITS; ++i) {
 /* Reference helpers                                                         */
 /* ------------------------------------------------------------------------- */
 
-/* Directly compute one output y[k] in O(FIELD_ORDER log k) field operations. */
-static gf16_t vandermonde_transpose_one_naive(const gf16_t a[FIELD_ORDER], uint32_t k)
+/* Directly compute one output y[k] in O(GF16_ORDER log k) field operations. */
+static gf16_t vandermonde_transpose_one_naive(const gf16_t a[GF16_ORDER], uint32_t k)
 {
     gf16_t sum = 0;
 
-    for (uint32_t x = 0; x < FIELD_ORDER; ++x)
+    for (uint32_t x = 0; x < GF16_ORDER; ++x)
         sum ^= gf16_mul(a[x], gf16_pow((gf16_t)x, k));
 
     return sum;
 }
 
 /* Faster direct check of selected k: walk x^k by exponentiation per x. */
-static void check_selected_outputs(const gf16_t a[FIELD_ORDER],
-                                   const gf16_t y[FIELD_ORDER],
+static void check_selected_outputs(const gf16_t a[GF16_ORDER],
+                                   const gf16_t y[GF16_ORDER],
                                    const uint32_t *ks,
                                    size_t nks)
 {
@@ -720,21 +718,21 @@ static void check_selected_outputs(const gf16_t a[FIELD_ORDER],
 }
 
 /* Evaluate monomial polynomial c at every field element. */
-static void vandermonde_forward(const gf16_t c[FIELD_ORDER], gf16_t values[FIELD_ORDER]) {
-    memcpy(values, c, FIELD_ORDER * sizeof(gf16_t));
+static void vandermonde_forward(const gf16_t c[GF16_ORDER], gf16_t values[GF16_ORDER]) {
+    memcpy(values, c, GF16_ORDER * sizeof(gf16_t));
 
-    monomial_to_novel_rec(values, FIELD_BITS);
-    additive_fft(values, FIELD_BITS, 0);
+    monomial_to_novel_rec(values, GF16_BITS);
+    additive_fft(values, GF16_BITS, 0);
 
     /* values currently indexed by Cantor coordinates; scatter to x labels. */
-    gf16_t *tmp = malloc(FIELD_ORDER * sizeof(gf16_t));
+    gf16_t *tmp = malloc(GF16_ORDER * sizeof(gf16_t));
     if (!tmp) {
         fprintf(stderr, "allocation failed\n");
         exit(2);
     }
-    memcpy(tmp, values, FIELD_ORDER * sizeof(gf16_t));
+    memcpy(tmp, values, GF16_ORDER * sizeof(gf16_t));
 
-    for (uint32_t j = 0; j < FIELD_ORDER; ++j)
+    for (uint32_t j = 0; j < GF16_ORDER; ++j)
         values[cantor_permutation[j]] = tmp[j];
 
     free(tmp);
@@ -744,16 +742,16 @@ static void vandermonde_forward(const gf16_t c[FIELD_ORDER], gf16_t values[FIELD
 static gf16_t dot_product(const gf16_t *a, const gf16_t *b)
 {
     gf16_t s = 0;
-    for (uint32_t i = 0; i < FIELD_ORDER; ++i)
+    for (uint32_t i = 0; i < GF16_ORDER; ++i)
         s ^= gf16_mul(a[i], b[i]);
     return s;
 }
 
 int gf16_vandermonde_transpose_test() {
-    gf16_t *a    = malloc(FIELD_ORDER * sizeof(gf16_t));
-    gf16_t *y    = malloc(FIELD_ORDER * sizeof(gf16_t));
-    gf16_t *c    = malloc(FIELD_ORDER * sizeof(gf16_t));
-    gf16_t *Vc   = malloc(FIELD_ORDER * sizeof(gf16_t));
+    gf16_t *a    = malloc(GF16_ORDER * sizeof(gf16_t));
+    gf16_t *y    = malloc(GF16_ORDER * sizeof(gf16_t));
+    gf16_t *c    = malloc(GF16_ORDER * sizeof(gf16_t));
+    gf16_t *Vc   = malloc(GF16_ORDER * sizeof(gf16_t));
 
     if (!a || !y || !c || !Vc) {
         fprintf(stderr, "allocation failed\n");
@@ -761,13 +759,13 @@ int gf16_vandermonde_transpose_test() {
     }
 
     printf("Cantor basis for modulus 0x1100B:\n");
-    for (unsigned i = 0; i < FIELD_BITS; ++i)
+    for (unsigned i = 0; i < GF16_BITS; ++i)
         printf("  beta[%2u] = 0x%04X\n", i, beta[i]);
 
     /* Verify cantor_permutation[] is really a permutation of all 65536 field elements. */
-    uint8_t *seen = calloc(FIELD_ORDER, 1);
+    uint8_t *seen = calloc(GF16_ORDER, 1);
     assert(seen);
-    for (uint32_t j = 0; j < FIELD_ORDER; ++j) {
+    for (uint32_t j = 0; j < GF16_ORDER; ++j) {
         assert(!seen[cantor_permutation[j]]);
         seen[cantor_permutation[j]] = 1;
     }
@@ -775,7 +773,7 @@ int gf16_vandermonde_transpose_test() {
 
     printf("\nTest 1: a[x] = x\n");
 
-    for (uint32_t x = 0; x < FIELD_ORDER; ++x)
+    for (uint32_t x = 0; x < GF16_ORDER; ++x)
         a[x] = (gf16_t)x;
 
     gf16_vandermonde_transpose_multiply(a, y);
@@ -785,8 +783,8 @@ int gf16_vandermonde_transpose_test() {
      * In GF(q), q=65536, this is nonzero only when (q-1)|(k+1).
      * For k=0..65535, the only such k is 65534, and the value is 1.
      */
-    for (uint32_t k = 0; k < FIELD_ORDER; ++k) {
-        const gf16_t expected = (k == FIELD_ORDER - 2) ? 1 : 0;
+    for (uint32_t k = 0; k < GF16_ORDER; ++k) {
+        const gf16_t expected = (k == GF16_ORDER - 2) ? 1 : 0;
         if (y[k] != expected) {
             fprintf(stderr,
                     "FAIL structured test at k=%u: got=%04X expected=%04X\n",
@@ -802,7 +800,7 @@ int gf16_vandermonde_transpose_test() {
      */
     printf("\nTest 2: pseudorandom vector, selected direct checks\n");
     uint64_t rand_state = 123456789;
-    w1rand_fill(a, FIELD_ORDER * sizeof(gf16_t), &rand_state);
+    w1rand_fill(a, GF16_ORDER * sizeof(gf16_t), &rand_state);
 
     gf16_vandermonde_transpose_multiply(a, y);
 
@@ -822,7 +820,7 @@ int gf16_vandermonde_transpose_test() {
      * for an independent deterministic vector c.
      */
     printf("\nTest 3: transpose inner-product identity\n");
-    w1rand_fill(c, FIELD_ORDER * sizeof(gf16_t), &rand_state);
+    w1rand_fill(c, GF16_ORDER * sizeof(gf16_t), &rand_state);
 
     vandermonde_forward(c, Vc);
 
