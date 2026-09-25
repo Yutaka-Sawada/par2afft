@@ -24,7 +24,8 @@ typedef struct {
     uint32_t exponent[FIELD_BITS];
 } subspace_shape_t;
 
-static gf16_t node[FIELD_ORDER];
+gf16_t cantor_permutation[FIELD_ORDER];
+
 static gf16_t beta[FIELD_BITS];
 
 // beta_prefix[i] = is the XOR sum of the first i elements of beta
@@ -132,10 +133,10 @@ static void generate_cantor_basis()
 
 static void build_cantor_permutation()
 {
-    node[0] = 0;
+    cantor_permutation[0] = 0;
     for (uint32_t j = 1; j < FIELD_ORDER; ++j) {
         const unsigned b = __builtin_ctz(j);
-        node[j] = node[j ^ (1 << b)] ^ beta[b];
+        cantor_permutation[j] = cantor_permutation[j ^ (1 << b)] ^ beta[b];
     }
 }
 
@@ -651,7 +652,7 @@ static void additive_fft_transpose(gf16_t *a)
 void gf16_vandermonde_transpose_multiply(const gf16_t a[FIELD_ORDER], gf16_t y[FIELD_ORDER]) {
     /* P: gather external field-label order into Cantor-coordinate order. */
     for (uint32_t j = 0; j < FIELD_ORDER; ++j)
-        y[j] = a[node[j]];
+        y[j] = a[cantor_permutation[j]];
 
     additive_fft_transpose(y);
     monomial_to_novel_transpose(y);
@@ -734,7 +735,7 @@ static void vandermonde_forward(const gf16_t c[FIELD_ORDER], gf16_t values[FIELD
     memcpy(tmp, values, FIELD_ORDER * sizeof(gf16_t));
 
     for (uint32_t j = 0; j < FIELD_ORDER; ++j)
-        values[node[j]] = tmp[j];
+        values[cantor_permutation[j]] = tmp[j];
 
     free(tmp);
 }
@@ -763,12 +764,12 @@ int gf16_vandermonde_transpose_test() {
     for (unsigned i = 0; i < FIELD_BITS; ++i)
         printf("  beta[%2u] = 0x%04X\n", i, beta[i]);
 
-    /* Verify node[] is really a permutation of all 65536 field elements. */
+    /* Verify cantor_permutation[] is really a permutation of all 65536 field elements. */
     uint8_t *seen = calloc(FIELD_ORDER, 1);
     assert(seen);
     for (uint32_t j = 0; j < FIELD_ORDER; ++j) {
-        assert(!seen[node[j]]);
-        seen[node[j]] = 1;
+        assert(!seen[cantor_permutation[j]]);
+        seen[cantor_permutation[j]] = 1;
     }
     free(seen);
 

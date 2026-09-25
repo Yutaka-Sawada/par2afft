@@ -7,6 +7,8 @@
 #define GF16_VANDERMONDE_TESTS_INCLUDED 0
 #endif
 
+extern gf16_t cantor_permutation[GF16_ORDER];
+
 void gf16_vandermonde_transpose_init();
 
 /* Compute y[k] = sum_x a[x] x^k. */
