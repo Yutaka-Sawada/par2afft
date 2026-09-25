@@ -116,8 +116,8 @@ struct InputFile {
 };
 
 struct InputSlice {
-    gf16_t      constant;
-    const void *addr;
+    gf16_t        constant;
+    const gf16_t *elems;
 };
 
 static size_t pagesize;
@@ -303,7 +303,7 @@ static int write_ifsc_packet(const struct InputFile *input_file, struct InputSli
         MD5_Update(&md5_ctx, data, arg_block_size);
         MD5_Final(packet->body.checksums[i].md5.data, &md5_ctx);
 
-        (*slice_ptr)++->addr = data;
+        (*slice_ptr)++->elems = (const gf16_t*) data;
 
         size_t slice_size = size < arg_block_size ? size : arg_block_size;
         data += slice_size;
@@ -502,9 +502,10 @@ static void generate_recovery_data() {
     gf16_t y[1 << 16];
     memset(a, 0, sizeof(a));
     int last_progress = isatty(fileno(stderr)) ? -1 : 100;
-    for (long long j = 0; j < arg_block_size / sizeof(gf16_t); ++j) {
+    long long columns = arg_block_size / sizeof(gf16_t);
+    for (long long j = 0; j < columns; ++j) {
         // Print progress
-        int progress = j * 100 / (arg_block_size / sizeof(gf16_t));
+        int progress = j * 100 / columns;
         if (progress > last_progress) {
             fprintf(stderr, "%3d%%\r", progress);
             last_progress = progress;
@@ -512,7 +513,7 @@ static void generate_recovery_data() {
         for (int i = 0; i < arg_input_blocks; ++i) {
             // Load the j-th element from the i-th input block.
             const struct InputSlice *s = &input_blocks[i];
-            a[s->constant] = ((gf16_t*) s->addr)[j];
+            a[s->constant] = s->elems[j];
         }
         gf16_vandermonde_transpose_multiply(a, y);
         for (int i = 0; i < arg_output_blocks; ++i) {
