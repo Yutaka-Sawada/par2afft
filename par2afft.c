@@ -182,7 +182,7 @@ static void show_usage() {
         "\n"
         "Options:\n"
         "    -b<n>   block count (default 2000)\n"
-        "    -s<n>   block size\n"
+        "    -s<n>   block size (default auto)\n"
         "    -r<n>   redundancy percentage (default 5)\n"
         "    -c<n>   recovery block count (default 100)\n"
         "    -f<n>   first recovery block number (default 0)"
