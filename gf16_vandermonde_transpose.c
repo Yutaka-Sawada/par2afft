@@ -134,9 +134,8 @@ static void build_cantor_permutation()
 {
     node[0] = 0;
     for (uint32_t j = 1; j < FIELD_ORDER; ++j) {
-        const uint32_t lb = j & (0u - j);       /* lowest set bit */
-        const unsigned b = (unsigned)__builtin_ctz(lb);
-        node[j] = node[j ^ lb] ^ beta[b];
+        const unsigned b = __builtin_ctz(j);
+        node[j] = node[j ^ (1 << b)] ^ beta[b];
     }
 }
 
