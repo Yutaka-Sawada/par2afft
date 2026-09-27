@@ -1,4 +1,5 @@
-Experiments for faster implementations of PAR 2.0
+par2afft: Experiment for faster implementation of PAR 2.0
+=========================================================
 
 See the original spec here:
 https://parchive.sourceforge.net/docs/specifications/parity-volume-spec/article-spec.html
@@ -18,3 +19,21 @@ Cantor.
 As a result, the current code is only competitive when the number of input
 slices is close to the maximum of 32768, and the number of recovery slices is
 also large (ideally close to 32768 as well).
+
+
+COMPILING
+---------
+
+par2afft currently runs on x86_64 Linux only.
+
+Dependencies:
+
+    - gmake
+    - GCC or Clang
+    - OpenSSL (or compatible like LibreSSL; used for MD5)
+
+Example build commands:
+
+% make build/par2afft    # build par2afft only
+% make all               # build par2afft and tests and benchmarks
+% make all test          # build all and run tests
