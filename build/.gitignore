@@ -1,0 +1,6 @@
+/*.d
+/*.o
+/libpar2afft.a
+/par2afft
+/*_test
+/*_bench
