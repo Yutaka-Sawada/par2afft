@@ -25,7 +25,7 @@ DEPDIR=build
 
 # Compiler and linker flags
 CPPFLAGS=-D_POSIX_C_SOURCE=200809 -D_FILE_OFFSET_BITS=64
-CFLAGS=-Wall -Wno-deprecated-declarations -std=c11 -O3 -march=native -g
+CFLAGS=-Wall -Wno-deprecated-declarations -std=c11 -O3 -march=x86-64-v3 -g
 LDLIBS=-lcrypto
 
 # Sources to include in libpar2afft.a (essentially everything that is not a binary
@@ -48,6 +48,7 @@ TEST_NAMES= \
 
 # Benchmark binaries. Each of these must have a corresponding .c file.
 BENCH_NAMES= \
+	gf16_avx2_mul_bench \
 	gf16_vt_mul_bench
 
 #
