@@ -5,7 +5,7 @@
 
 #include "crc32.h"
 #include "gf16.h"
-#include "gf16_vandermonde_transpose.h"
+#include "gf16_vt_mul.h"
 
 #include <openssl/md5.h>
 
@@ -515,7 +515,7 @@ static void generate_recovery_data() {
             const struct InputSlice *s = &input_blocks[i];
             a[s->constant] = s->elems[j];
         }
-        gf16_vandermonde_transpose_multiply(a, y);
+        gf16_vt_mul(a, y);
         for (int i = 0; i < arg_output_blocks; ++i) {
             struct RecoverySlicePacketBody *body = &recovery_blocks[i]->body;
             body->elems[j] = y[body->exponent];
@@ -796,8 +796,8 @@ int main(int argc, char *argv[]) {
 
     // Now the fun begins! First, initialize the tables we need:
     gf16_init();
-    gf16_vandermonde_transpose_init();
     init_input_constants();
+    gf16_vt_mul_init();
 
     if (reserve_output_slices(arg_output_blocks) != 0) goto fail;
     generate_recovery_data();  // this is where most time is spent

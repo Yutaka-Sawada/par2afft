@@ -2,7 +2,7 @@
 // which generated the original recursive formulations. The iterative algorithms
 // were written by hand.
 
-#include "gf16_vandermonde_transpose.h"
+#include "gf16_vt_mul.h"
 #include "gf16.h"
 
 #include <assert.h>
@@ -525,7 +525,7 @@ void additive_fft_transpose(gf16_t a[GF16_ORDER])
 /* ------------------------------------------------------------------------- */
 
 /* Compute y[k] = sum_x a[x] x^k. */
-void gf16_vandermonde_transpose_multiply(const gf16_t a[GF16_ORDER], gf16_t y[GF16_ORDER]) {
+void gf16_vt_mul(const gf16_t a[GF16_ORDER], gf16_t y[GF16_ORDER]) {
     /* P: gather external field-label order into Cantor-coordinate order. */
     for (uint32_t j = 0; j < GF16_ORDER; ++j)
         y[j] = a[cantor_permutation[j]];
@@ -534,7 +534,7 @@ void gf16_vandermonde_transpose_multiply(const gf16_t a[GF16_ORDER], gf16_t y[GF
     monomial_to_novel_transpose(y);
 }
 
-void gf16_vandermonde_transpose_init() {
+void gf16_vt_mul_init() {
     static char initialized = 0;
     if (initialized) return;
 

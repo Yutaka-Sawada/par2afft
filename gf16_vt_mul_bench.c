@@ -1,5 +1,5 @@
 #include "gf16.h"
-#include "gf16_vandermonde_transpose.h"
+#include "gf16_vt_mul.h"
 #include "w1rand.h"
 
 #include <assert.h>
@@ -10,7 +10,7 @@
 
 int main() {
     gf16_init();
-    gf16_vandermonde_transpose_init();
+    gf16_vt_mul_init();
 
     int niter = 5000;
     printf("Running benchmark (%d iterations)...\n", niter);
@@ -26,7 +26,7 @@ int main() {
 
         // Perform fast multiplication.
         gf16_t y[1 << 16];
-        gf16_vandermonde_transpose_multiply(a, y);
+        gf16_vt_mul(a, y);
 
         // Use the result to make sure nothing gets optimized away
         for (size_t i = 0; i < (1 << 16); ++i) checksum += y[i];

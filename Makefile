@@ -33,21 +33,22 @@ LDLIBS=-lcrypto
 LIBPAR2AFFT_SRCS= \
 	crc32.c \
 	gf16.c \
-	gf16_vandermonde_transpose.c \
 	gf16_avx2_mul.c \
-	gf16_vt_batch_mul.c
+	gf16_vt_batch_mul.c \
+	gf16_vt_mul.c
 
 # Main binary name. Source is in par2afft.c
 MAIN_NAME=par2afft
 
 # Test binaries. Each of these must have a corresponding .c file.
-TEST_NAMES=\
+TEST_NAMES= \
 	crc32_test \
-	gf16_vandermonde_test \
+	gf16_vt_mul_test \
 	gf16_vt_batch_mul_test
 
 # Benchmark binaries. Each of these must have a corresponding .c file.
-BENCH_NAMES=benchmark
+BENCH_NAMES= \
+	gf16_vt_mul_bench
 
 #
 # These rest of the file is mostly boilerplate.

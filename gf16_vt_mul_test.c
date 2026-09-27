@@ -1,5 +1,5 @@
 #include "gf16.h"
-#include "gf16_vandermonde_transpose.h"
+#include "gf16_vt_mul.h"
 #include "w1rand.h"
 
 #include <assert.h>
@@ -172,7 +172,7 @@ static gf16_t dot_product(const gf16_t *a, const gf16_t *b)
     return s;
 }
 
-int gf16_vandermonde_transpose_test() {
+int gf16_vt_mul_test() {
     gf16_t *a    = malloc(GF16_ORDER * sizeof(gf16_t));
     gf16_t *y    = malloc(GF16_ORDER * sizeof(gf16_t));
     gf16_t *c    = malloc(GF16_ORDER * sizeof(gf16_t));
@@ -201,7 +201,7 @@ int gf16_vandermonde_transpose_test() {
     for (uint32_t x = 0; x < GF16_ORDER; ++x)
         a[x] = (gf16_t)x;
 
-    gf16_vandermonde_transpose_multiply(a, y);
+    gf16_vt_mul(a, y);
 
     /*
      * y[k] = sum_x x^(k+1).
@@ -227,7 +227,7 @@ int gf16_vandermonde_transpose_test() {
     uint64_t rand_state = 123456789;
     w1rand_fill(a, GF16_ORDER * sizeof(gf16_t), &rand_state);
 
-    gf16_vandermonde_transpose_multiply(a, y);
+    gf16_vt_mul(a, y);
 
     static const uint32_t ks[] = {
         0, 1, 2, 3, 7, 15, 16, 31,
@@ -273,7 +273,7 @@ int gf16_vandermonde_transpose_test() {
 int main()
 {
     gf16_init();
-    gf16_vandermonde_transpose_init();
+    gf16_vt_mul_init();
     build_subspace_shapes();
 
     /* Print out shape table contents for manual unrolling.
@@ -284,5 +284,5 @@ int main()
     }
     */
 
-    return gf16_vandermonde_transpose_test();
+    return gf16_vt_mul_test();
 }
