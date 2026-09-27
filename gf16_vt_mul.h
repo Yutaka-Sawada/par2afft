@@ -1,5 +1,5 @@
-#ifndef VANDERMONDE_TRANSPOSE_H_INCLUDED
-#define VANDERMONDE_TRANSPOSE_H_INCLUDED
+#ifndef GF16_VT_MUL_H_INCLUDED
+#define GF16_VT_MUL_H_INCLUDED
 
 #include "gf16.h"
 
@@ -32,4 +32,4 @@ void monomial_to_novel_transpose(gf16_t a[GF16_ORDER]);
 void additive_fft_transpose(gf16_t a[GF16_ORDER]);
 gf16_t subspace_poly_eval(unsigned i, gf16_t x);
 
-#endif  // ndef VANDERMONDE_TRANSPOSE_H_INCLUDED
+#endif  // ndef GF16_VT_MUL_H_INCLUDED
