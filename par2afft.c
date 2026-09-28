@@ -145,6 +145,7 @@ static long long arg_redundancy     =    -1;
 static long long arg_output_blocks  =    -1;
 static long long arg_output_start   =     0;
 static bool      arg_batch          = false;
+static bool      arg_overwrite      = false;
 
 static struct Crc32 wrap_crc32(uint32_t crc32) {
     // Store in little endian byte order.
@@ -191,13 +192,18 @@ static void show_usage() {
         "Note: space after options is not allowed.\n"
         "\n"
         "Experimental options:\n"
-        "    --batch  use batch multiplication to calculate recovery blocks (faster)\n",
+        "    --batch      use batch multiplication to calculate recovery blocks (faster)\n"
+        "    --overwrite  overwrite the output file if it already exists\n",
         stderr);
 }
 
 static int parse_option(const char *arg) {
     if (strcmp(arg, "--batch") == 0) {
-        arg_batch = 1;
+        arg_batch = true;
+        return 0;
+    }
+    if (strcmp(arg, "--overwrite") == 0) {
+        arg_overwrite = true;
         return 0;
     }
     switch (arg[1]) {
@@ -352,7 +358,8 @@ static int open_output_file(const char *filename) {
         out_fd = fileno(stdout);
         return 0;
     }
-    out_fd = open(filename, O_RDWR | O_CREAT | O_EXCL, 0644);
+    int open_flags = O_RDWR | O_EXCL | (arg_overwrite ? O_TRUNC : O_CREAT);
+    out_fd = open(filename, open_flags, 0644);
     if (out_fd == -1) {
         if (errno == EEXIST) {
             fprintf(stderr, "Output file already exists: %s\n", filename);
