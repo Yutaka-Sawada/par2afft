@@ -6,6 +6,7 @@
 #include "crc32.h"
 #include "gf16.h"
 #include "gf16_vt_mul.h"
+#include "gf16_vt_batch_mul.h"
 
 #include <openssl/md5.h>
 
@@ -138,11 +139,12 @@ static int out_fd = -1;
 static void *out_mapped_addr = NULL;
 static size_t out_mapped_size = 0;
 
-static long long arg_input_blocks   = -1;
-static long long arg_block_size     = -1;
-static long long arg_redundancy     = -1;
-static long long arg_output_blocks  = -1;
-static long long arg_output_start   =  0;
+static long long arg_input_blocks   =    -1;
+static long long arg_block_size     =    -1;
+static long long arg_redundancy     =    -1;
+static long long arg_output_blocks  =    -1;
+static long long arg_output_start   =     0;
+static bool      arg_batch          = false;
 
 static struct Crc32 wrap_crc32(uint32_t crc32) {
     // Store in little endian byte order.
@@ -185,12 +187,19 @@ static void show_usage() {
         "    -s<n>   block size (default auto)\n"
         "    -r<n>   redundancy percentage (default 5)\n"
         "    -c<n>   recovery block count (default 100)\n"
-        "    -f<n>   first recovery block number (default 0)"
-        "Note: space after options is not allowed.\n",
+        "    -f<n>   first recovery block number (default 0)\n"
+        "Note: space after options is not allowed.\n"
+        "\n"
+        "Experimental options:\n"
+        "    --batch  use batch multiplication to calculate recovery blocks (faster)\n",
         stderr);
 }
 
 static int parse_option(const char *arg) {
+    if (strcmp(arg, "--batch") == 0) {
+        arg_batch = 1;
+        return 0;
+    }
     switch (arg[1]) {
     case 'b':
         if (sscanf(&arg[2], "%lld", &arg_input_blocks) == 1) return 0;
@@ -523,6 +532,50 @@ static void generate_recovery_data() {
     }
 }
 
+// Batch size in elements (i.e. 256 = 512 KIB per batch).
+#define AFFT_BATCH_SIZE 256
+
+static gf16_t afft_buffer[GF16_ORDER][AFFT_BATCH_SIZE]; // 128 KiB * BATCH_SIZE
+
+static void generate_recovery_data_batch() {
+    const gf16_t *input_rows[GF16_ORDER];
+    for (int i = 0; i < GF16_ORDER; ++i) input_rows[i] = NULL;
+
+    gf16_t *output_rows[GF16_ORDER];
+    for (int i = 0; i < GF16_ORDER; ++i) output_rows[i] = afft_buffer[i];
+
+    assert(arg_block_size % sizeof(gf16_t) == 0);
+    uint64_t total_elements = arg_block_size / sizeof(gf16_t);
+    for (uint64_t offset = 0; offset < total_elements; ) {
+        // Calculate width of next batch to process (in field elements)
+        uint64_t width = total_elements - offset;
+        if (width >= AFFT_BATCH_SIZE) {
+            width = AFFT_BATCH_SIZE;
+        } else if (width % GF16_VT_MIN_BATCH_SIZE != 0) {
+            // Round up to batch size. We laready checked that pagesize is a
+            // multiple of batch size, so this will not cause invalid reads.
+            width += GF16_VT_MIN_BATCH_SIZE - width % GF16_VT_MIN_BATCH_SIZE;
+        }
+
+        // Copy input.
+        for (int i = 0; i < arg_input_blocks; ++i) {
+            const struct InputSlice *s = &input_blocks[i];
+            input_rows[s->constant] = s->elems + offset;
+        }
+
+        // Batch multiply!
+        gf16_vt_batch_mul(output_rows, input_rows, width);
+
+        // Copy output.
+        for (int i = 0; i < arg_output_blocks; ++i) {
+            struct RecoverySlicePacketBody *body = &recovery_blocks[i]->body;
+            memcpy(body->elems + offset, output_rows[i], width * sizeof(gf16_t));
+        }
+
+        offset += width;
+    }
+}
+
 static int compare_input_files_by_id(const void *a, const void *b) {
     return compare_md5(
         &((const struct InputFile *)a)->id,
@@ -733,7 +786,7 @@ int init_pagesize() {
         perror("sysconf");
         return -1;
     }
-    if (res < 64) {
+    if (res == 0 || (res % GF16_VT_MIN_BATCH_SIZE * sizeof(gf16_t) != 0)) {
         fprintf(stderr, "Invalid page size: %ld\n", res);
         return -1;
     }
@@ -798,9 +851,16 @@ int main(int argc, char *argv[]) {
     gf16_init();
     init_input_constants();
     gf16_vt_mul_init();
+    gf16_vt_batch_mul_init();
 
     if (reserve_output_slices(arg_output_blocks) != 0) goto fail;
-    generate_recovery_data();  // this is where most time is spent
+
+    // Generate the actual recovery blocks. This is where most time is spent.
+    if (arg_batch) {
+        generate_recovery_data_batch();
+    } else {
+        generate_recovery_data();
+    }
     if (finalize_output_slices(arg_output_blocks) != 0) goto fail;
 
     exit_status = 0;
