@@ -371,11 +371,43 @@ static int open_output_file(const char *filename) {
     return 0;
 }
 
+// Verifies that the filename is suitable for inclusion in a PAR2 file and
+// returns NULL, or else returns an error message.
+const char *check_filename(const char *name) {
+    if (name == NULL) return "filename is NULL";
+    size_t len = strlen(name);
+    if (len == 0) return "filename is empty";
+    if (name[0] == '/') return "filename is an absolute path";
+    if (name[len - 1] == '/') return "filename refers to a directory";
+    for (size_t i = 0;;) {
+        size_t j = i;
+        while (j < len && name[j] != '/') ++j;
+        if (j - i == 0) {
+            return "filename contains an empty path component";
+        }
+        if (j - i == 1 && name[i] == '.') {
+            return "filename contains a \".\" path component";
+        }
+        if (j - i == 2 && name[i] == '.' && name[i + 1] == '.') {
+            return "filename contains a \"..\" path component";
+        }
+        if (j == len) return NULL;
+        i = j + 1;
+    }
+}
+
 static int open_input_file(const char *filename) {
+    const char *err = check_filename(filename);
+    if (err != NULL) {
+        fprintf(stderr, "Invalid input file name (%s): %s\n", filename, err);
+        return -1;
+    }
+
     if (input_file_count >= MAX_FILE_COUNT) {
         fprintf(stderr, "Too many input files!\n");
         return -1;
     }
+
     int fd = open(filename, O_RDONLY);
     if (fd == -1) {
         fprintf(stderr, "Failed to open input file (%s): %s\n", filename, strerror(errno));
@@ -385,8 +417,7 @@ static int open_input_file(const char *filename) {
     struct stat st;
     if (fstat(fd, &st) != 0) {
         fprintf(stderr, "Failed to stat input file (%s): %s\n", filename, strerror(errno));
-        close(fd);
-        return -1;
+        goto fail;
     }
     if (!S_ISREG(st.st_mode)) {
         if (S_ISDIR(st.st_mode)) {
@@ -394,28 +425,30 @@ static int open_input_file(const char *filename) {
         } else {
             fprintf(stderr, "Input file not a regular file: %s\n", filename);
         }
-        close(fd);
-        return -1;
+        goto fail;
     }
-
-    // Note: size must be 8 bytes since we hash it below
-    uint64_t size = st.st_size;
-    if (size == 0) {
+    if (st.st_size < 0 || st.st_size > UINT64_MAX) {
+        fprintf(stderr, "Invalid file size\n");
+        goto fail;
+    } else if (st.st_size == 0) {
         fprintf(stderr, "Warning: %s is an empty file!\n", filename);
     }
 
     char *name = strdup(filename);
     if (name == NULL) {
         perror("strdup");
-        close(fd);
-        return -1;
+        goto fail;
     }
 
     struct InputFile *file = &input_files[input_file_count++];
     file->name = name;
-    file->size = size;
+    file->size = st.st_size;
     file->fd   = fd;
     return 0;
+
+fail:
+    if (close(fd) != 0) perror("close");
+    return -1;
 }
 
 static int mmap_input_files() {
