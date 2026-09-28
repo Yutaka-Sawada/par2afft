@@ -12,7 +12,7 @@ static inline uint32_t crc32_update(uint32_t crc, const void *data, size_t size)
     return crc;
 }
 
-static inline uint32_t crc32_init() {
+static inline uint32_t crc32_start() {
     return 0xFFFFFFFFu;
 }
 
@@ -21,7 +21,7 @@ static inline uint32_t crc32_finish(uint32_t crc) {
 }
 
 static inline uint32_t crc32(const void *data, size_t size) {
-    return crc32_finish(crc32_update(crc32_init(), data, size));
+    return crc32_finish(crc32_update(crc32_start(), data, size));
 }
 
 #endif  // ndef CRC32_H_INCLUDED

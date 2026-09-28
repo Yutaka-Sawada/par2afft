@@ -403,6 +403,9 @@ void gf16_vt_batch_afft(
 }
 
 void gf16_vt_batch_mul_init() {
+    static char initialized = 0;
+    if (initialized) return;
+
     gf16_vt_mul_init();
 
 #if AVX2_MUL_AND_XOR
@@ -412,6 +415,8 @@ void gf16_vt_batch_mul_init() {
         nibtab_for_afft[i] = gf16_avx2_gen_nibtab(c);
     }
 #endif
+
+    initialized = 1;
 }
 
 // TODO make this an inplace function? just need to permute pointers OR assign in node order?

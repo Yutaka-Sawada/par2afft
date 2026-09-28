@@ -90,9 +90,11 @@ gf16_nibtab_avx2_t gf16_avx2_gen_nibtab(gf16_t x) {
 void gf16_avx2_mul_init() {
     static char initialized = 0;
     if (initialized) return;
+
     for (int i = 0; i < GF16_ORDER; ++i) {
         gf16_nibtab_avx2[i] = gf16_avx2_gen_nibtab(i);
     }
+
     initialized = 1;
 }
 

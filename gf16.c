@@ -1,13 +1,12 @@
 #include "gf16.h"
 
-static char gf16_initialized = 0;
-
 gf16_t gf16_sqr_lut[1 << 16];
 gf16_t gf16_log_lut[1 << 16];
 gf16_t gf16_exp_lut[2 << 16];
 
 void gf16_init() {
-    if (gf16_initialized) return;
+    static char initialized = 0;
+    if (initialized) return;
 
     gf16_log_lut[0] = (uint16_t) GF16_POLY;
     gf16_exp_lut[65535] = 1;
@@ -29,7 +28,7 @@ void gf16_init() {
         gf16_sqr_lut[i] = gf16_exp_lut[gf16_log_lut[i] * 2];
     }
 
-    gf16_initialized = 1;
+    initialized = 1;
 }
 
 gf16_t gf16_pow(gf16_t a, unsigned e) {
