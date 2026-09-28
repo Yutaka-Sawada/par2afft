@@ -25,7 +25,7 @@ extern gf16_t subspace_poly_for_afft[GF16_ORDER - 1];
 void gf16_vt_mul_init();
 
 // Compute y[k] = sum_x a[x] x^k.
-void gf16_vt_mul(const gf16_t a[GF16_ORDER], gf16_t y[GF16_ORDER]);
+void gf16_vt_mul(gf16_t y[GF16_ORDER], const gf16_t a[GF16_ORDER]);
 
 // Exposed for testing
 void monomial_to_novel_transpose(gf16_t a[GF16_ORDER]);

@@ -201,7 +201,7 @@ int gf16_vt_mul_test() {
     for (uint32_t x = 0; x < GF16_ORDER; ++x)
         a[x] = (gf16_t)x;
 
-    gf16_vt_mul(a, y);
+    gf16_vt_mul(y, a);
 
     /*
      * y[k] = sum_x x^(k+1).
@@ -227,7 +227,7 @@ int gf16_vt_mul_test() {
     uint64_t rand_state = 123456789;
     w1rand_fill(a, GF16_ORDER * sizeof(gf16_t), &rand_state);
 
-    gf16_vt_mul(a, y);
+    gf16_vt_mul(y, a);
 
     static const uint32_t ks[] = {
         0, 1, 2, 3, 7, 15, 16, 31,

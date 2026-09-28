@@ -525,7 +525,7 @@ void additive_fft_transpose(gf16_t a[GF16_ORDER])
 /* ------------------------------------------------------------------------- */
 
 /* Compute y[k] = sum_x a[x] x^k. */
-void gf16_vt_mul(const gf16_t a[GF16_ORDER], gf16_t y[GF16_ORDER]) {
+void gf16_vt_mul(gf16_t y[GF16_ORDER], const gf16_t a[GF16_ORDER]) {
     /* P: gather external field-label order into Cantor-coordinate order. */
     for (uint32_t j = 0; j < GF16_ORDER; ++j)
         y[j] = a[cantor_permutation[j]];

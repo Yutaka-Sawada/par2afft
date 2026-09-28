@@ -20,16 +20,16 @@ int main() {
     uint64_t rng_state = 0x123456789abcdef;
     for (int iter = 0; iter < niter; ++iter) {
         // Fill buffer with pseudo-random data
-        gf16_t a[1 << 16];
-        w1rand_fill(a, sizeof(a), &rng_state);
-        input_bytes += sizeof(a);
+        gf16_t src[1 << 16];
+        w1rand_fill(src, sizeof(src), &rng_state);
+        input_bytes += sizeof(src);
 
         // Perform fast multiplication.
-        gf16_t y[1 << 16];
-        gf16_vt_mul(a, y);
+        gf16_t dst[1 << 16];
+        gf16_vt_mul(dst, src);
 
         // Use the result to make sure nothing gets optimized away
-        for (size_t i = 0; i < (1 << 16); ++i) checksum += y[i];
+        for (size_t i = 0; i < (1 << 16); ++i) checksum += dst[i];
     }
     double time_elapsed = (double) (clock() - clock_begin) / CLOCKS_PER_SEC;
     printf("Time elapsed: %.6f s\n", time_elapsed);
