@@ -40,13 +40,6 @@ static void mul_avx(gf16_t c, const gf16_t *src, gf16_t *dst, size_t n) {
     gf16_avx2_mul_and_xor(dst, src, c, n);
 }
 
-static void gf16_swap(void *ctx, size_t i, size_t j) {
-    gf16_t *a = ctx;
-    gf16_t tmp = a[i];
-    a[i] = a[j];
-    a[j] = tmp;
-}
-
 double benchmark_mul(const char *name, f_t *func, int width, int niter) {
     // I use this property below to randomly fill the buffer.
     assert(sizeof(uint64_t) % sizeof(gf16_t) == 0);

@@ -9,6 +9,7 @@
 #ifndef GF16_H_INCLUDED
 #define GF16_H_INCLUDED
 
+#include <stddef.h>
 #include <stdint.h>
 
 #define GF16_POLY  0x1100B
@@ -41,5 +42,13 @@ static inline gf16_t gf16_mul_log(gf16_t a, gf16_t log_b) {
 }
 
 gf16_t gf16_pow(gf16_t a, unsigned e);
+
+// Swaps two elements in an array. Used in tests with w1rand_shuffle().
+static inline void gf16_swap(void *ctx, size_t i, size_t j) {
+    gf16_t *a = ctx;
+    gf16_t tmp = a[i];
+    a[i] = a[j];
+    a[j] = tmp;
+}
 
 #endif //  ndef GF16_H_INCLUDED
