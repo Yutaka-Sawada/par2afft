@@ -10,18 +10,27 @@
 #include <string.h>
 
 typedef void (func_t)(
-    const gf16_t *const restrict a[restrict static GF16_ORDER],
     gf16_t *const restrict y[restrict static GF16_ORDER],
+    const gf16_t *const restrict a[restrict static GF16_ORDER],
     size_t width);
+
+static void *xalloc(size_t n) {
+    void *p = malloc(n);
+    if (p == NULL) {
+        perror("malloc");
+        exit(1);
+    }
+    return p;
+}
 
 static void benchmark(func_t func, size_t width) {
     uint64_t rng_state = 0x123456789abcdef;
 
-    gf16_t **a = calloc(GF16_ORDER, sizeof(gf16_t*));
-    gf16_t **b = calloc(GF16_ORDER, sizeof(gf16_t*));
+    gf16_t **a = xalloc(sizeof(gf16_t*) * GF16_ORDER);
+    gf16_t **b = xalloc(sizeof(gf16_t*) * GF16_ORDER);
     for (int i = 0; i < GF16_ORDER; ++i) {
-        a[i] = calloc(width, sizeof(gf16_t));
-        b[i] = calloc(width, sizeof(gf16_t));
+        a[i] = xalloc(sizeof(gf16_t) * width);
+        b[i] = xalloc(sizeof(gf16_t) * width);
         w1rand_fill(a[i], width * sizeof(gf16_t), &rng_state);
         w1rand_fill(b[i], width * sizeof(gf16_t), &rng_state);
     }

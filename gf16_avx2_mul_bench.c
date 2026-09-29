@@ -13,6 +13,15 @@
 // Multiply a vector by a constant
 typedef void (f_t)(const gf16_t, const gf16_t *, gf16_t *, size_t);
 
+static void *xalloc(size_t n) {
+    void *p = malloc(n);
+    if (p == NULL) {
+        perror("malloc");
+        exit(1);
+    }
+    return p;
+}
+
 static void mul_lut(gf16_t c, const gf16_t *src, gf16_t *dst, size_t n) {
     if (c == 0) {
         for (size_t i = 0; i < n; ++i) {
@@ -53,15 +62,16 @@ double benchmark_mul(const char *name, f_t *func, int width, int niter) {
     uint64_t rng_state = 0x123456789abcdef;
 
     gf16_t a[GF16_ORDER];
-    size_t len = width < GF16_ORDER ? GF16_ORDER : width;
-    gf16_t *b  = malloc(len * sizeof(gf16_t));
-    assert(b != NULL);
-    gf16_t *c = malloc(len * sizeof(gf16_t));
-    assert(c != NULL);
     for (int i = 0; i < GF16_ORDER; ++i) a[i] = i;
-    for (int i = 0; i < len; ++i) b[i] = i % GF16_ORDER;
     w1rand_shuffle(GF16_ORDER, &rng_state, gf16_swap, a);
-    w1rand_shuffle_prefix(width, len, &rng_state, gf16_swap, a);
+
+    size_t len = width < GF16_ORDER ? GF16_ORDER : width;
+    gf16_t *b = xalloc(sizeof(gf16_t) * len);
+    for (int i = 0; i < len; ++i) b[i] = i % GF16_ORDER;
+    w1rand_shuffle_prefix(width, len, &rng_state, gf16_swap, b);
+
+    gf16_t *c = xalloc(sizeof(gf16_t) * len);
+
     for (int iter = 0; iter < niter; ++iter) {
         gf16_t x = a[iter % GF16_ORDER];
         clock_t clock_begin = clock();
