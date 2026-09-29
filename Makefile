@@ -43,12 +43,13 @@ MAIN_NAME=par2afft
 # Test binaries. Each of these must have a corresponding .c file.
 TEST_NAMES= \
 	crc32_test \
-	gf16_vt_mul_test \
-	gf16_vt_batch_mul_test
+	gf16_vt_batch_mul_test \
+	gf16_vt_mul_test
 
 # Benchmark binaries. Each of these must have a corresponding .c file.
 BENCH_NAMES= \
 	gf16_avx2_mul_bench \
+	gf16_vt_batch_mul_bench \
 	gf16_vt_mul_bench
 
 #

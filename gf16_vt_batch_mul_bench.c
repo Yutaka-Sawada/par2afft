@@ -35,7 +35,7 @@ static void benchmark(func_t func, size_t width) {
     double time_elapsed = 0;
     for (int iter = 0; iter < niter; ++iter) {
         clock_t clock_begin = clock();
-        func(src, dst, width);
+        func(dst, src, width);
         time_elapsed += (double) (clock() - clock_begin) / CLOCKS_PER_SEC;
 
         // Use the result to make sure nothing gets optimized away
