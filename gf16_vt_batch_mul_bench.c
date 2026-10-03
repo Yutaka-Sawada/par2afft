@@ -10,8 +10,13 @@
 #include <string.h>
 
 typedef void (func_t)(
+#ifdef _MSC_VER
+    gf16_t *const restrict y[GF16_ORDER],
+    const gf16_t *const restrict a[GF16_ORDER],
+#else
     gf16_t *const restrict y[restrict static GF16_ORDER],
     const gf16_t *const restrict a[restrict static GF16_ORDER],
+#endif
     size_t width);
 
 static void *xalloc(size_t n) {

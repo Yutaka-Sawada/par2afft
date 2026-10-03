@@ -183,5 +183,5 @@ void gf16_avx2_mul_and_xor(
         gf16_t                 c,
         size_t                 n)
 {
-    return gf16_avx2_nibmul_and_xor(dst, src, &gf16_nibtab_avx2[c], n);
+    gf16_avx2_nibmul_and_xor(dst, src, &gf16_nibtab_avx2[c], n);
 }

@@ -3,17 +3,40 @@
 // Uses the Additive FFT to multiply with the transpose Vandermonde matrix in
 // O(q log q) time, where q is the size of the finite field, 65536 for Par2.
 
+#ifdef _MSC_VER
+// erase warning on Microsoft Visual Studio
+#define _CRT_SECURE_NO_WARNINGS
+#endif
+
 #include "crc32.h"
 #include "gf16.h"
 #include "gf16_vt_mul.h"
 #include "gf16_vt_batch_mul.h"
 
+#ifdef _MSC_VER // Windows
+
+// MD5 hash generator -- Paul Houle (paulhoule.com) 11/13/2017
+#include "win/phmd5.h"
+
+// for low level IO access
+#include <io.h>
+
+/*
+header-only Windows implementation of the `<unistd.h>` header.
+MIT License
+Copyright (c) 2019 win32ports
+*/
+#include "win/unistd.h"
+
+#else // Linux
 #include <openssl/md5.h>
+
+#include <sys/mman.h>
+#include <unistd.h>
+#endif
 
 #include <fcntl.h>
 #include <sys/stat.h>
-#include <sys/mman.h>
-#include <unistd.h>
 
 #include <assert.h>
 #include <errno.h>
@@ -37,6 +60,84 @@ static const char *packet_type_main     = "PAR 2.0\0Main\0\0\0\0";
 static const char *packet_type_filedesc = "PAR 2.0\0FileDesc";
 static const char *packet_type_ifsc     = "PAR 2.0\0IFSC\0\0\0\0";
 static const char *packet_type_recovery = "PAR 2.0\0RecvSlic";
+
+#ifdef _MSC_VER // Windows
+
+// set alignment to 1
+#pragma pack(push, 1)
+
+struct Md5 {
+    uint8_t data[MD5_DIGEST_LENGTH];  // must be unsigned for compare_md5
+};
+
+struct Crc32 {
+    uint8_t data[CRC32_LENGTH];
+};
+
+// Just blindly assuming structs are packed here.
+// Also we assume we're on a little-endian system.
+struct PacketHeader {
+    uint8_t    magic[8];
+    uint64_t   length;   /* must be multiple of 4 */
+    struct Md5 md5;
+    struct Md5 recovery_set_id;
+    uint8_t    type[16];
+};
+
+struct MainPacketBody {
+    uint64_t slice_size;
+    uint32_t file_count;
+    struct Md5 file_ids[MAX_FILE_COUNT];
+};
+
+struct MainPacket {
+    struct PacketHeader header;
+    struct MainPacketBody body;
+};
+
+struct FileDescriptionPacketBody {
+    struct Md5 id;
+    struct Md5 md5;
+    struct Md5 md5_16k;
+    uint64_t length;
+    char     name[];
+};
+
+struct FileDescriptionPacket {
+    struct PacketHeader header;
+    struct FileDescriptionPacketBody body;
+};
+
+struct SliceChecksums {
+    struct Md5   md5;
+    struct Crc32 crc32;
+};
+
+// Input File Slice Checksums
+struct IfscPacketBody {
+    struct Md5 file_id;
+    struct SliceChecksums checksums[];
+};
+
+struct IfscPacket {
+    struct PacketHeader header;
+    struct IfscPacketBody body;
+};
+
+struct RecoverySlicePacketBody {
+    uint32_t exponent;
+    gf16_t elems[];
+};
+
+struct RecoverySlicePacket {
+    struct PacketHeader header;
+    struct RecoverySlicePacketBody body;
+};
+
+// end alignment
+#pragma pack(pop)
+
+#else // Linux
 
 struct Md5 {
     uint8_t data[MD5_DIGEST_LENGTH];  // must be unsigned for compare_md5
@@ -106,6 +207,8 @@ struct RecoverySlicePacket {
     struct RecoverySlicePacketBody body;
 } __attribute__((packed));
 
+#endif
+
 struct InputFile {
     char    *name;
     uint64_t size;
@@ -139,11 +242,11 @@ static int out_fd = -1;
 static void *out_mapped_addr = NULL;
 static size_t out_mapped_size = 0;
 
-static long long arg_input_blocks   =    -1;
-static long long arg_block_size     =    -1;
-static long long arg_redundancy     =    -1;
-static long long arg_output_blocks  =    -1;
-static long long arg_output_start   =     0;
+static int64_t arg_input_blocks   =    -1;
+static int64_t arg_block_size     =    -1;
+static int64_t arg_redundancy     =    -1;
+static int64_t arg_output_blocks  =    -1;
+static int64_t arg_output_start   =     0;
 static bool      arg_batch          = false;
 static bool      arg_overwrite      = false;
 
@@ -247,12 +350,20 @@ static void fill_packet_header(
 static int write_packet(struct PacketHeader *header, const void *body_data) {
     size_t header_length = sizeof(struct PacketHeader);
     assert(header->length >= header_length);
+#ifdef _MSC_VER
+    if (_write(out_fd, header, (int)header_length) != (int)header_length) {
+#else
     if (write(out_fd, header, header_length) != header_length) {
+#endif
         perror("Failed to write packet header");
         return -1;
     }
     size_t body_length = header->length - header_length;
+#ifdef _MSC_VER
+    if (_write(out_fd, body_data, (int)body_length) != (int)body_length) {
+#else
     if (write(out_fd, body_data, body_length) != body_length) {
+#endif
         perror("Failed to write packet body");
         return -1;
     }
@@ -296,7 +407,7 @@ static int write_file_description_packet(const struct InputFile *input_file) {
 // This writes the IFSC packet and as a side-effect also populates input_slices.
 static int write_ifsc_packet(const struct InputFile *input_file, struct InputSlice **slice_ptr) {
     const uint8_t *data = input_file->mapped_addr;
-    size_t size = input_file->size;
+    int64_t size = input_file->size;
     uint64_t slices = (size + arg_block_size - 1) / arg_block_size;
 
     size_t payload_size = sizeof(struct SliceChecksums) * slices;
@@ -320,7 +431,7 @@ static int write_ifsc_packet(const struct InputFile *input_file, struct InputSli
 
         (*slice_ptr)++->elems = (const gf16_t*) data;
 
-        size_t slice_size = size < arg_block_size ? size : arg_block_size;
+        int64_t slice_size = size < arg_block_size ? size : arg_block_size;
         data += slice_size;
         size -= slice_size;
     }
@@ -355,11 +466,19 @@ static void create_main_packet() {
 
 static int open_output_file(const char *filename) {
     if (strcmp(filename, "-") == 0) {
+#ifdef _MSC_VER
+        out_fd = _fileno(stdout);
+#else
         out_fd = fileno(stdout);
+#endif
         return 0;
     }
-    int open_flags = O_RDWR | O_EXCL | (arg_overwrite ? O_TRUNC : O_CREAT);
+    int open_flags = O_RDWR | O_BINARY | O_CREAT | (arg_overwrite ? O_TRUNC : O_EXCL);
+#ifdef _MSC_VER
+    out_fd = _open(filename, open_flags, _S_IREAD | _S_IWRITE);
+#else
     out_fd = open(filename, open_flags, 0644);
+#endif
     if (out_fd == -1) {
         if (errno == EEXIST) {
             fprintf(stderr, "Output file already exists: %s\n", filename);
@@ -408,7 +527,7 @@ static int open_input_file(const char *filename) {
         return -1;
     }
 
-    int fd = open(filename, O_RDONLY);
+    int fd = open(filename, O_RDONLY | O_BINARY);
     if (fd == -1) {
         fprintf(stderr, "Failed to open input file (%s): %s\n", filename, strerror(errno));
         return -1;
@@ -462,6 +581,32 @@ static int mmap_input_files() {
         if (size % arg_block_size != 0) size += arg_block_size - size % arg_block_size;
         if (size % pagesize != 0) size += pagesize - size % pagesize;
 
+#ifdef _MSC_VER // Windows OS doesn't support larger mapping size than actual file size.
+        // First allocate memory that cover each slice completely.
+        void *addr = malloc(size);
+        if (addr == NULL) {
+            fprintf(stderr, "Failed to allocate memory of length %zu for input file (%s): %s\n",
+                size, file->name, strerror(errno));
+            return -1;
+        }
+        // Then read the entire file on the allocated memory.
+        FILE *fp = _fdopen(file->fd, "rb");
+        if (fp == NULL){
+            fprintf(stderr, "Failed to open input file (%s): %s\n", file->name, strerror(errno));
+            return -1;
+        }
+        size_t load_size = fread(addr, 1, file->size, fp);
+        if (load_size != file->size){
+            fprintf(stderr, "Failed to read input file (%s): %s\n", file->name, strerror(errno));
+            fclose(fp);
+            return -1;
+        }
+        fclose(fp);
+        if (file->size < size)
+            memset((char *)addr + file->size, 0, size - file->size); // zero padding the last slice
+        file->mapped_addr = addr;
+        file->mapped_size = size;
+#else
         // First allocate zero pages that cover each slice completely.
         void *addr = mmap(NULL, size, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         if (addr == MAP_FAILED) {
@@ -481,6 +626,7 @@ static int mmap_input_files() {
         }
         file->mapped_addr = addr;
         file->mapped_size = size;
+#endif
     }
     return 0;
 }
@@ -513,6 +659,15 @@ static int reserve_output_slices(int slice_count) {
         return -1;
     }
     uint64_t space_needed = recovery_packet_size * slice_count;
+#ifdef _MSC_VER // MSVC doesn't support mmap() and posix_fallocate().
+    out_mapped_addr = malloc(space_needed);
+    if (out_mapped_addr == NULL) {
+        perror("Failed to allocate memory for recovery packets");
+        return -1;
+    }
+    out_mapped_size = space_needed;
+    char *ptr = (char*) out_mapped_addr;
+#else
     if (posix_fallocate(out_fd, current_pos, space_needed) != 0) {
         // No perror(), because posix_fallocate() does NOT set errno on failure
         fprintf(stderr, "Failed to allocate disk space for recovery slices!\n");
@@ -525,13 +680,14 @@ static int reserve_output_slices(int slice_count) {
         return -1;
     }
     out_mapped_size = new_size;
-
     char *ptr = (char*) out_mapped_addr + current_pos;
+#endif
+
     for (int i = 0; i < slice_count; ++i) {
         struct RecoverySlicePacket *packet = (struct RecoverySlicePacket*)ptr;
         ptr += recovery_packet_size;
         recovery_blocks[i] = packet;
-        packet->body.exponent = arg_output_start + i;
+        packet->body.exponent = (uint32_t)(arg_output_start + i);
     }
     return 0;
 }
@@ -542,6 +698,25 @@ static int finalize_output_slices(int slice_count) {
     for (int i = 0; i < slice_count; ++i) {
         fill_packet_header(&recovery_blocks[i]->header, packet_type_recovery, &recovery_blocks[i]->body, body_size);
     }
+
+#ifdef _MSC_VER // write recovery packets on output file
+    FILE *fp = _fdopen(out_fd, "r+");
+    if (fp == NULL){
+        fprintf(stderr, "Failed to open output file: %s\n", strerror(errno));
+        return -1;
+    }
+    if (fwrite(out_mapped_addr, 1, out_mapped_size, fp) != out_mapped_size) {
+        fprintf(stderr, "Failed to write output file: %s\n", strerror(errno));
+        fclose(fp);
+        return -1;
+    }
+    fclose(fp);
+
+    // relese memory
+    free(out_mapped_addr);
+    out_mapped_addr = NULL;
+#endif
+
     return 0;
 }
 
@@ -551,10 +726,10 @@ static void generate_recovery_data() {
     gf16_t y[1 << 16];
     memset(a, 0, sizeof(a));
     int last_progress = isatty(fileno(stderr)) ? -1 : 100;
-    long long columns = arg_block_size / sizeof(gf16_t);
-    for (long long j = 0; j < columns; ++j) {
+    int64_t columns = arg_block_size / sizeof(gf16_t);
+    for (int64_t j = 0; j < columns; ++j) {
         // Print progress
-        int progress = j * 100 / columns;
+        int progress = (int)(j * 100 / columns);
         if (progress > last_progress) {
             fprintf(stderr, "%3d%%\r", progress);
             last_progress = progress;
@@ -564,7 +739,7 @@ static void generate_recovery_data() {
             const struct InputSlice *s = &input_blocks[i];
             a[s->constant] = s->elems[j];
         }
-        gf16_vt_mul(a, y);
+        gf16_vt_mul(y, a);
         for (int i = 0; i < arg_output_blocks; ++i) {
             struct RecoverySlicePacketBody *body = &recovery_blocks[i]->body;
             body->elems[j] = y[body->exponent];
@@ -739,7 +914,7 @@ int parse_arguments(int argc, char *argv[]) {
 
     // Fill in default option arguments
     // The logic here is pretty hairy... this probably needs more testing!
-    int nonempty_files = count_nonempty_files();
+    int nonempty_files = (int)count_nonempty_files();
     if (nonempty_files == 0) {
         fprintf(stderr, "No nonempty files in recovery set!\n");
         return -1;
@@ -778,12 +953,12 @@ int parse_arguments(int argc, char *argv[]) {
         arg_block_size = calculate_block_size(arg_input_blocks);
     }
 
-    long long calculated_block_count = calculate_block_count(arg_block_size);
+    int64_t calculated_block_count = calculate_block_count(arg_block_size);
     if (calculated_block_count != arg_input_blocks) {
         fprintf(stderr,
                 "Note: calculated block count (%lld) differs from requested block count (%lld).\n"
                 "This can happen due to rounding when calculating the block size.\n",
-                (long long) calculated_block_count, arg_input_blocks);
+                (int64_t) calculated_block_count, arg_input_blocks);
         arg_input_blocks = calculated_block_count;
     }
     if (calculated_block_count > MAX_BLOCK_COUNT) {
@@ -819,6 +994,20 @@ int parse_arguments(int argc, char *argv[]) {
 
     return 0;
 }
+
+#ifdef _MSC_VER // Windows
+#include <windows.h>
+
+#define _SC_PAGESIZE 1
+
+long sysconf(int name) {
+    SYSTEM_INFO sysInfo;
+    GetSystemInfo(&sysInfo);
+    if (name == _SC_PAGESIZE)
+        return sysInfo.dwPageSize;
+    return -1;
+}
+#endif
 
 int init_pagesize() {
     long res = sysconf(_SC_PAGESIZE);
@@ -893,7 +1082,7 @@ int main(int argc, char *argv[]) {
     gf16_vt_mul_init();
     gf16_vt_batch_mul_init();
 
-    if (reserve_output_slices(arg_output_blocks) != 0) goto fail;
+    if (reserve_output_slices((int)arg_output_blocks) != 0) goto fail;
 
     // Generate the actual recovery blocks. This is where most time is spent.
     if (arg_batch) {
@@ -901,7 +1090,7 @@ int main(int argc, char *argv[]) {
     } else {
         generate_recovery_data();
     }
-    if (finalize_output_slices(arg_output_blocks) != 0) goto fail;
+    if (finalize_output_slices((int)arg_output_blocks) != 0) goto fail;
 
     exit_status = 0;
     goto finish;

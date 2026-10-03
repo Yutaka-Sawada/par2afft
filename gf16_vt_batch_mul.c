@@ -165,7 +165,11 @@ static void xorv_15(gf16_t *restrict dest,
 }
 
 void gf16_vt_batch_monomial_to_novel(
+#ifdef _MSC_VER
+    gf16_t *const restrict a[GF16_ORDER],
+#else
     gf16_t *const restrict a[restrict static GF16_ORDER],
+#endif
     size_t width)
 {
     assert(width % 16 == 0);
@@ -338,8 +342,12 @@ static gf16_nibtab_avx2_t nibtab_for_afft[GF16_ORDER];
 
 #endif  // AVX2_MUL_AND_XOR
 
+#ifdef _MSC_VER // MSVC uses __forceinline instead of always_inline.
+static __forceinline void gf16_vt_batch_afft_level_i(
+#else
 __attribute__((always_inline))
 static inline void gf16_vt_batch_afft_level_i(
+#endif
         const int i, gf16_t *const restrict a[GF16_ORDER], size_t width) {
     const uint32_t n = GF16_ORDER;
 
@@ -349,7 +357,7 @@ static inline void gf16_vt_batch_afft_level_i(
     // This can also be inlined in the loop below, but doing it separately can
     // be optimized better by the compiler.
     for (gf16_t *const restrict *block = a; block < a + n; block += block_size) {
-        for (uint32_t t = 0; t < h; ++t)
+        for (int t = 0; t < h; ++t)
             xorv_1(block[t], block[h + t], width);
     }
 
@@ -373,7 +381,7 @@ static inline void gf16_vt_batch_afft_level_i(
     for (gf16_t *const restrict *block = a; block < a + n; block += block_size) {
         // Lookup table multiplication
         const gf16_nibtab_avx2_t *tab = p++;
-        for (uint32_t t = 0; t < h; ++t) {
+        for (int t = 0; t < h; ++t) {
             gf16_avx2_nibmul_and_xor(block[h + t], block[t], tab, width);
         }
     }
@@ -381,7 +389,11 @@ static inline void gf16_vt_batch_afft_level_i(
 }
 
 void gf16_vt_batch_afft(
+#ifdef _MSC_VER
+    gf16_t *const restrict a[GF16_ORDER],
+#else
     gf16_t *const restrict a[restrict static GF16_ORDER],
+#endif
     size_t width)
 {
     gf16_vt_batch_afft_level_i(  0, a, width);
@@ -421,8 +433,13 @@ void gf16_vt_batch_mul_init() {
 
 // TODO make this an inplace function? just need to permute pointers OR assign in node order?
 void gf16_vt_batch_mul(
+#ifdef _MSC_VER
+    gf16_t *const restrict y[GF16_ORDER],
+    const gf16_t *const restrict a[GF16_ORDER],
+#else
     gf16_t *const restrict y[restrict static GF16_ORDER],
     const gf16_t *const restrict a[restrict static GF16_ORDER],
+#endif
     size_t width)
 {
     for (uint32_t j = 0; j < GF16_ORDER; ++j) {
@@ -437,7 +454,11 @@ void gf16_vt_batch_mul(
 }
 
 void gf16_vt_batch_mul_inplace(
+#ifdef _MSC_VER
+    gf16_t *const restrict a[GF16_ORDER],
+#else
     gf16_t *const restrict a[restrict static GF16_ORDER],
+#endif
     size_t width)
 {
     gf16_vt_batch_afft(a, width);

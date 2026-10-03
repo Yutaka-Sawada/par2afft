@@ -8,6 +8,18 @@
 #include <assert.h>
 #include <stdint.h>
 
+// replace gcc's __builtin_ctz for MSVC
+#ifdef _MSC_VER
+#include <intrin.h>
+uint32_t __inline __builtin_ctz( uint32_t value )
+{
+    uint32_t trailing_zero = 0;
+    _BitScanForward( &trailing_zero, value );
+    return trailing_zero;
+}
+#endif
+
+
 #ifndef ITERATIVE_AFFT
 #define ITERATIVE_AFFT 1
 #endif
@@ -474,8 +486,12 @@ static void additive_fft_transpose_rec(gf16_t *a, unsigned m, gf16_t alpha)
 
 // Iterative implementation of additive_fft_transpose_rec() follows.
 
+#ifdef _MSC_VER // MSVC uses __forceinline instead of always_inline.
+static __forceinline void additive_fft_transpose_level_i(gf16_t a[GF16_ORDER], const int i) {
+#else
 __attribute__((always_inline))
 static inline void additive_fft_transpose_level_i(gf16_t a[GF16_ORDER], const int i) {
+#endif
     const uint32_t n = GF16_ORDER;
 
     const int h          = 1 << i;
@@ -484,7 +500,7 @@ static inline void additive_fft_transpose_level_i(gf16_t a[GF16_ORDER], const in
     // This can also be inlined in the loop below, but doing it separately can
     // be optimized better by the compiler.
     for (gf16_t *block = a; block < a + n; block += block_size) {
-        for (uint32_t t = 0; t < h; ++t)
+        for (int t = 0; t < h; ++t)
             block[t] ^= block[h + t];
     }
 
@@ -492,7 +508,7 @@ static inline void additive_fft_transpose_level_i(gf16_t a[GF16_ORDER], const in
     for (gf16_t *block = a; block < a + n; block += block_size) {
         const gf16_t log_c = *p++;
         if (log_c != 65535) {
-            for (uint32_t t = 0; t < h; ++t)
+            for (int t = 0; t < h; ++t)
                 block[h + t] ^= gf16_mul_log(block[t], log_c);
         }
     }

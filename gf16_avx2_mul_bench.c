@@ -6,6 +6,7 @@
 #include <inttypes.h>
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 #include <time.h>
@@ -103,7 +104,8 @@ int main() {
         for (int i = 0; i < 16; ++i) assert(b[i] == c[i]);
     }
 
-    const int W = 20;
+    //const int W = 20;
+    #define W 20
 
     double throughput[W + 1][2];
 
