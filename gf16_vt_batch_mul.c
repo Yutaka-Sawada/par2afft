@@ -383,6 +383,7 @@ static inline void gf16_vt_batch_afft_level_i(
         const gf16_nibtab_avx2_t *tab = p++;
         for (int t = 0; t < h; ++t) {
             gf16_avx2_nibmul_and_xor(block[h + t], block[t], tab, width);
+            //gf16_avx2_nibmul32_and_xor(block[h + t], block[t], tab, width); // process 32 words per loop
         }
     }
 #endif // AVX2_MUL_AND_XOR

@@ -88,92 +88,116 @@ gf16_nibtab_avx2_t gf16_avx2_gen_nibtab(gf16_t x) {
 }
 
 // Generates the nibble tables for constant x without table lookup.
+//
+// This code is implemented by Anime Tosho, who is author of ParPar and par2cmdline-turbo.
 gf16_nibtab_avx2_t gf16_avx2_gen_nibtab_fly(gf16_t x)
 {
-    gf16_nibtab_avx2_t res;
-    __m128i xmm0, xmm1, xmm2, xmm3, mask8;
-    __m256i ymm0, ymm1, base, poly, mask16;
+	gf16_nibtab_avx2_t res;
+	__m128i xmm0, xmm1;
+	__m256i base;
 
-    // create mask for 8-bit
-    mask8 = _mm_setzero_si128();
-    mask8 = _mm_cmpeq_epi16(mask8, mask8);	// 0xFFFF *8
-    mask8 = _mm_srli_epi16(mask8, 8);		// 0x00FF *8
+	// calc x*2, x*4, x*8
+	gf16_t x2 = (x << 1) ^ (((short)x >> 15) & 0x100B);
+	gf16_t x4 = (x2 << 1) ^ (((short)x2 >> 15) & 0x100B);
+	gf16_t x8 = (x4 << 1) ^ (((short)x4 >> 15) & 0x100B);
 
-    // put x*(1,2,4,8) in 128-bit registers
-    xmm0 = _mm_cvtsi32_si128((int)x);			// [_][_][_][_][_][_][_][1] x*1
-    xmm1 = _mm_setzero_si128();
-    x = (x << 1) ^ (((short)x >> 15) & 0x100B);
-    xmm1 = _mm_insert_epi16(xmm1, (int)x, 1);	// [_][_][_][_][_][_][2][_] x*2
-    xmm2 = _mm_setzero_si128();
-    x = (x << 1) ^ (((short)x >> 15) & 0x100B);
-    xmm2 = _mm_insert_epi16(xmm2, (int)x, 4);	// [_][_][_][4][_][_][_][_] x*4
-    xmm1 = _mm_unpacklo_epi16(xmm1, xmm1);		// [_][_][_][_][2][2][_][_]
-    x = (x << 1) ^ (((short)x >> 15) & 0x100B);
-    xmm3 = _mm_cvtsi32_si128((int)x);			// [_][_][_][_][_][_][_][8] x*8
+	// put x*(1,2,4,8) in 128-bit registers
+	xmm0 = _mm_cvtsi32_si128((int)x << 16);			// [_][_][_][_][_][_][1][0] x*1
+	xmm0 = _mm_insert_epi16(xmm0, x2, 2);			// [_][_][_][_][_][2][1][0]
+	xmm0 = _mm_insert_epi16(xmm0, x2 ^ x, 3);		// [_][_][_][_][3][2][1][0]
+	xmm1 = _mm_set1_epi16(x4);						// [4][4][4][4][4][4][4][4] x*4
+	xmm1 = _mm_xor_si128(xmm1, xmm0);				// [4][4][4][4][7][6][5][4]
+	xmm0 = _mm_unpacklo_epi64(xmm0, xmm1);			// [7][6][5][4][3][2][1][0] x*(7~0)
+	xmm1 = _mm_set1_epi16(x8);						// [8][8][8][8][8][8][8][8] x*8
+	xmm1 = _mm_xor_si128(xmm1,xmm0);				// [f][e][d][c][b][a][9][8] x*(0xf~8)
 
-    // construct x*(7~0) and x*(15~8) in 128-bit registers
-    xmm0 = _mm_shufflelo_epi16(xmm0, _MM_SHUFFLE(0, 1, 0, 1));	// [_][_][_][_][1][_][1][_]
-    xmm3 = _mm_unpacklo_epi16(xmm3, xmm3);						// [_][_][_][_][_][_][8][8]
-    xmm0 = _mm_xor_si128(xmm0, xmm1);							// [_][_][_][_][3][2][1][_]
-    xmm2 = _mm_shufflehi_epi16(xmm2, _MM_SHUFFLE(0, 0, 0, 0));	// [4][4][4][4][_][_][_][_]
-    xmm0 = _mm_unpacklo_epi64(xmm0, xmm0);						// [3][2][1][_][3][2][1][_]
-    xmm3 = _mm_shuffle_epi32(xmm3, _MM_SHUFFLE(0, 0, 0, 0));	// [8][8][8][8][8][8][8][8]
-    xmm2 = _mm_xor_si128(xmm2, xmm0);							// [ 7][ 6][ 5][ 4][ 3][ 2][1][0] x*(7~0)
-    xmm3 = _mm_xor_si128(xmm3, xmm2);							// [15][14][13][12][11][10][9][8] x*(15~8)
+	// combine into a single YMM register
+	base = _mm256_inserti128_si256(_mm256_castsi128_si256(xmm0), xmm1, 1);
 
-    // gather x*(15~0) in 256-bit register
-    poly = _mm256_set1_epi32(0x100B100B);	// PRIM_POLY = 0x1100B * 16
-    mask16 = _mm256_cmpeq_epi16(poly, poly);
-    mask16 = _mm256_srli_epi16(mask16, 8);	// 0x00FF *16
-    base = _mm256_setzero_si256();
-    base = _mm256_inserti128_si256(base, xmm2, 0);
-    base = _mm256_inserti128_si256(base, xmm3, 1);	// x*(15~0)
+	// move high bytes into bottom half, bottom bytes into top half
+	base = _mm256_shuffle_epi8(base, _mm256_set_epi32(
+		0x0f0d0b09, 0x07050301, 0x0e0c0a08, 0x06040200,
+		0x0f0d0b09, 0x07050301, 0x0e0c0a08, 0x06040200
+	));
+	base = _mm256_permute4x64_epi64(base, _MM_SHUFFLE(2,0,3,1));
+	// for the first two words, [ab][cd] and [ef][gh],
+	// where each letter represents a nibble and brackets denote a byte,
+	// they're now arranged in base like:
+	// ...[gh][cd]...[ef][ab]
 
-    // split to low and high
-    xmm0 = _mm_and_si128(xmm2, mask8);
-    xmm1 = _mm_and_si128(xmm3, mask8);
-    xmm0 = _mm_packus_epi16(xmm0, xmm1);	// lower  8-bit * 16
-    xmm2 = _mm_srli_epi16(xmm2, 8);
-    xmm3 = _mm_srli_epi16(xmm3, 8);
-    xmm2 = _mm_packus_epi16(xmm2, xmm3);	// higher 8-bit * 16
-    res.lo[0] = _mm256_broadcastsi128_si256(xmm0);
-    res.hi[0] = _mm256_broadcastsi128_si256(xmm2);
+	// broadcast halves for final table
+	res.lo[0] = _mm256_permute4x64_epi64(base, _MM_SHUFFLE(3,2,3,2));
+	res.hi[0] = _mm256_inserti128_si256(base, _mm256_castsi256_si128(base), 1);
 
-    // calculate other nibble tables by multipling 16
-    for (int k = 1; k < 4; k++){
-        // multiply by 2
-        ymm0 = _mm256_slli_epi16(base, 1);
-        ymm1 = _mm256_srai_epi16(base, 15);
-        ymm1 = _mm256_and_si256(ymm1, poly);
-        base = _mm256_xor_si256(ymm1, ymm0);
+	const __m256i mask = _mm256_set1_epi8(0xf);
+	// this is the multiply-by-16 reduction (lower half) constant - see code below for how it's computed
+	// we only need the lower half because the upper half of the 0x1100b polynomial can be done with just a shift+xor
+	const __m128i reduce = _mm_set_epi32(0x69627f74, 0x454e5358, 0x313a272c, 0x1d160b00);
+	__m256i lo, hi, idx;
+	__m128i reduced;
 
-        // multiply by 2
-        ymm0 = _mm256_slli_epi16(base, 1);
-        ymm1 = _mm256_srai_epi16(base, 15);
-        ymm1 = _mm256_and_si256(ymm1, poly);
-        base = _mm256_xor_si256(ymm1, ymm0);
+	// multiply by 64 three times
+	// this essentially is done via `(base << 4) ^ reduction[base >> 12]` but in vector form,
+	// and with split high/low bytes
+	for (int k = 1; k < 4; k++) {
+		// isolate nibbles
+		hi = _mm256_andnot_si256(mask, base);		// ...[g ][c ]...[e ][a ]
+		lo = _mm256_and_si256(mask, base);			// ...[ h][ d]...[ f][ b]
 
-        // multiply by 2
-        ymm0 = _mm256_slli_epi16(base, 1);
-        ymm1 = _mm256_srai_epi16(base, 15);
-        ymm1 = _mm256_and_si256(ymm1, poly);
-        base = _mm256_xor_si256(ymm1, ymm0);
+		// lookup top 4 bits of each word to get the result of modular reduction
+		// remember that the top half of each word is in the *lower* half of the YMM register,
+		// so we only need to do the lookup on the lower half of the YMM
+		idx = _mm256_srli_epi16(hi, 4);				// ...[ g][ c]...[ e][ a]
+		reduced = _mm_shuffle_epi8(reduce, _mm256_castsi256_si128(idx));
 
-        // multiply by 2
-        ymm0 = _mm256_slli_epi16(base, 1);
-        ymm1 = _mm256_srai_epi16(base, 15);
-        ymm1 = _mm256_and_si256(ymm1, poly);
-        base = _mm256_xor_si256(ymm1, ymm0);
+		// overwrite the low half of each word with the reduction result
+		// because the polynomial is 0x1100b, where the top half is 0x110,
+		// the top 4 bits of each word will be shifted down by 4 and xor'd with bits 8-11.
+		// Since multiplying by 16 shifts everything up by 4,
+		// these top 4 bits don't need to move, and can just stay in place
+		hi = _mm256_inserti128_si256(hi, reduced, 1);	// ...[rr][rr]...[e ][a ]
+		// `hi` now has the full result of modular reduction
 
-        ymm0 = _mm256_and_si256(base, mask16);	// lower  8-bit * 16
-        ymm1 = _mm256_srli_epi16(base, 8);		// higher 8-bit * 16
-        ymm0 = _mm256_packus_epi16(ymm0, ymm0);		// lower  8-bit * 32
-        ymm1 = _mm256_packus_epi16(ymm1, ymm1);		// higher 8-bit * 32
-        res.lo[k] = _mm256_permute4x64_epi64(ymm0, 0x88);	// swap order
-        res.hi[k] = _mm256_permute4x64_epi64(ymm1, 0x88);
-    }
+		// multiply by 16 by shifting left
+		// next line multiplies bits 0-3 and 8-11
+		lo = _mm256_slli_epi16(lo, 4);				// ...[h ][d ]...[f ][b ]
+		// bits 4-7 needs to be moved from the top half of the YMM register to the bottom,
+		// because it wraps around into the next byte
+		idx = _mm256_zextsi128_si256(_mm256_extracti128_si256(idx, 1));
+		lo = _mm256_or_si256(lo, idx);				// ...[h ][d ]...[fg][bc]
+
+		// combine the product with modular reduction
+		base = _mm256_xor_si256(lo, hi);
+
+		// broadcast halves for final table
+		res.lo[k] = _mm256_permute4x64_epi64(base, _MM_SHUFFLE(3,2,3,2));
+		res.hi[k] = _mm256_inserti128_si256(base, _mm256_castsi256_si128(base), 1);
+	}
 
     return res;
+
+	/*
+`reduce` can be computed via
+
+	uint16_t _poly[16];
+	int polynomial = 0x1100b;
+	__m128i tmp1, tmp2;
+	for(int i=0; i<16; i++) {
+		int p = 0;
+		if(i & 8) p ^= polynomial << 3;
+		if(i & 4) p ^= polynomial << 2;
+		if(i & 2) p ^= polynomial << 1;
+		if(i & 1) p ^= polynomial << 0;
+		
+		_poly[i] = p & 0xffff;
+	}
+	tmp1 = _mm_loadu_si128((__m128i*)_poly);
+	tmp2 = _mm_loadu_si128((__m128i*)_poly + 1);
+	tmp1 = _mm_shuffle_epi8(tmp1, _mm_set_epi32(0x0f0d0b09, 0x07050301, 0x0e0c0a08, 0x06040200));
+	tmp2 = _mm_shuffle_epi8(tmp2, _mm_set_epi32(0x0f0d0b09, 0x07050301, 0x0e0c0a08, 0x06040200));
+	reduce = _mm_unpacklo_epi64(tmp1, tmp2);
+
+	*/
 }
 
 void gf16_avx2_mul_init() {
@@ -267,66 +291,6 @@ void gf16_avx2_nibmul_and_xor(
     }
 }
 
-// remove inline functions, but no speed difference
-void gf16_avx2_nibmul16_and_xor(
-        gf16_t *restrict          dst,
-        const gf16_t *restrict    src,
-        const gf16_nibtab_avx2_t* tab,
-        size_t                    n)
-{
-    assert(n % 16 == 0);
-    // The number of using YMM registers is 16.
-    const __m256i mask = _mm256_set1_epi16(0x000f);
-    __m256i x, xx, r;
-    __m256i i0, i1, i2, i3;
-    __m256i tl0, tl1, tl2, tl3, th0, th1, th2, th3;
-
-    tl0 = _mm256_loadu_si256((__m256i const*)tab->lo);
-    tl1 = _mm256_loadu_si256((__m256i const*)(tab->lo + 1));
-    tl2 = _mm256_loadu_si256((__m256i const*)(tab->lo + 2));
-    tl3 = _mm256_loadu_si256((__m256i const*)(tab->lo + 3));
-    th0 = _mm256_loadu_si256((__m256i const*)tab->hi);
-    th1 = _mm256_loadu_si256((__m256i const*)(tab->hi + 1));
-    th2 = _mm256_loadu_si256((__m256i const*)(tab->hi + 2));
-    th3 = _mm256_loadu_si256((__m256i const*)(tab->hi + 3));
-
-    for (size_t i = 0; i + 16 <= n; i += 16) {
-        x = _mm256_loadu_si256((const __m256i *)(src + i));
-
-        i0 = _mm256_and_si256(x, mask); // no need shift for the lowest 4-bit
-        i1 = _mm256_and_si256(_mm256_srli_epi16(x,  4), mask);
-        i2 = _mm256_and_si256(_mm256_srli_epi16(x,  8), mask);
-        i3 = _mm256_srli_epi16(x, 12);  // no need mask for the highest 4-bit
-
-        xx = _mm256_shuffle_epi8(tl0, i0);
-        i0 = _mm256_slli_epi16(i0, 8);
-        r  = _mm256_shuffle_epi8(th0, i0); // result of look up
-        xx = _mm256_xor_si256(xx, r);      // combine results
-
-        r  = _mm256_shuffle_epi8(tl1, i1);
-        xx = _mm256_xor_si256(xx, r);
-        i1 = _mm256_slli_epi16(i1, 8);
-        r  = _mm256_shuffle_epi8(th1, i1);
-        xx = _mm256_xor_si256(xx, r);
-
-        r = _mm256_shuffle_epi8(tl2, i2);
-        xx = _mm256_xor_si256(xx, r);
-        i2 = _mm256_slli_epi16(i2, 8);
-        r = _mm256_shuffle_epi8(th2, i2);
-        xx = _mm256_xor_si256(xx, r);
-
-        r = _mm256_shuffle_epi8(tl3, i3);
-        xx = _mm256_xor_si256(xx, r);
-        i3 = _mm256_slli_epi16(i3, 8);
-        r = _mm256_shuffle_epi8(th3, i3);
-        xx = _mm256_xor_si256(xx, r);
-
-        x = _mm256_loadu_si256((const __m256i *)(dst + i));
-        x = _mm256_xor_si256(x, xx);
-        _mm256_storeu_si256((__m256i *)(dst + i), x);
-    }
-}
-
 // Multiplies 32 elements by the same constant implied by `tab`.
 //
 // x contains 16 16-bit elements: x0 x1 x2 .. x15
@@ -342,103 +306,85 @@ void gf16_avx2_nibmul16_and_xor(
 //
 // Then we use those index vectors to look up the products of all nibbles in
 // the nibble table in parallel, and finally combine the result with XOR.
+//
+// This code is implemented by Anime Tosho, who is author of ParPar and par2cmdline-turbo.
 void gf16_avx2_nibmul32_and_xor(
         gf16_t *restrict          dst,
         const gf16_t *restrict    src,
         const gf16_nibtab_avx2_t* tab,
         size_t                    n)
 {
-    assert(n % 16 == 0);
-    size_t i;
-    const __m256i mask = _mm256_set1_epi16(0x000f);
-    const __m256i mask_lo = _mm256_set1_epi16(0x00ff);
-    const __m256i mask_hi = _mm256_set1_epi16(0xff00);
-    __m256i x, y, lo, hi, xx, yy;
-    __m256i i0, i1, i2, i3;
+	assert(n % 16 == 0);
+	size_t i;
+	const __m256i mask = _mm256_set1_epi8(0x0f);
+	// shuffle vector to split 8x 16b words,
+	// moving low halves to the low 8 bytes of the vector
+	// and upper halves to the upper 8 bytes
+	const __m256i sep_lo_hi = _mm256_set_epi32(
+		0x0f0d0b09, 0x07050301, 0x0e0c0a08, 0x06040200,
+		0x0f0d0b09, 0x07050301, 0x0e0c0a08, 0x06040200
+	);
+	__m256i x, y, lo, hi, xx, yy;
+	__m256i i0, i1, i2, i3;
 
-    // process 64-bytes per loop
-    for (i = 0; i + 32 <= n; i += 32) {
-        x = _mm256_loadu_si256((const __m256i *)(src + i     ));
-        y = _mm256_loadu_si256((const __m256i *)(src + i + 16));
+	// process 64-bytes per loop
+	for (i = 0; i + 32 <= n; i += 32) {
+		x = _mm256_loadu_si256((const __m256i *)(src + i     ));
+		y = _mm256_loadu_si256((const __m256i *)(src + i + 16));
 
-        i0 = _mm256_and_si256(x, mask); // pick 16 elements of x's 4-bit
-        yy = _mm256_and_si256(y, mask); // pick 16 elements of y's 4-bit
-        yy = _mm256_slli_epi16(yy, 8);  // move y's 16 elements to upper 8-bit
-        i0 = _mm256_xor_si256(i0, yy);  // combine them to construct 32 elements of 4-bit
+		// deinterleave bytes
+		x = _mm256_shuffle_epi8(x, sep_lo_hi);
+		y = _mm256_shuffle_epi8(y, sep_lo_hi);
+		i0 = _mm256_unpacklo_epi64(x, y);   // low bytes of 32x words
+		i2 = _mm256_unpackhi_epi64(x, y);   // high bytes of 32x words
 
-        i1 = _mm256_and_si256(_mm256_srli_epi16(x,  4), mask);
-        yy = _mm256_and_si256(_mm256_srli_epi16(y,  4), mask);
-        yy = _mm256_slli_epi16(yy, 8);
-        i1 = _mm256_xor_si256(i1, yy);
+		// isolate lookup nibbles
+		i1 = _mm256_srli_epi16(i0, 4);
+		i1 = _mm256_and_si256(i1, mask);
+		i3 = _mm256_srli_epi16(i2, 4);
+		i3 = _mm256_and_si256(i3, mask);
+		i0 = _mm256_and_si256(i0, mask);
+		i2 = _mm256_and_si256(i2, mask);
 
-        i2 = _mm256_and_si256(_mm256_srli_epi16(x,  8), mask);
-        yy = _mm256_and_si256(_mm256_srli_epi16(y,  8), mask);
-        yy = _mm256_slli_epi16(yy, 8);
-        i2 = _mm256_xor_si256(i2, yy);
+		// perform nibble lookups
+		xx = _mm256_shuffle_epi8(tab->lo[0], i0); // 32 elements of lower  8-bit
+		yy = _mm256_shuffle_epi8(tab->hi[0], i0); // 32 elements of higher 8-bit
 
-        i3 = _mm256_srli_epi16(x, 12);
-        yy = _mm256_srli_epi16(y, 12);
-        yy = _mm256_slli_epi16(yy, 8);
-        i3 = _mm256_xor_si256(i3, yy);
+		x = _mm256_shuffle_epi8(tab->lo[1], i1);
+		y = _mm256_shuffle_epi8(tab->hi[1], i1);
+		xx = _mm256_xor_si256(xx, x);
+		yy = _mm256_xor_si256(yy, y);
 
-        lo = _mm256_shuffle_epi8(tab->lo[0], i0); // 32 elements of lower  8-bit
-        hi = _mm256_shuffle_epi8(tab->hi[0], i0); // 32 elements of higher 8-bit
-        xx = _mm256_and_si256(lo, mask_lo); // 16 elements of x's lower  8-bit
-        yy = _mm256_srli_epi16(lo, 8);      // 16 elements of y's lower  8-bit
-        x  = _mm256_slli_epi16(hi, 8);      // 16 elements of x's higher 8-bit
-        y  = _mm256_and_si256(hi, mask_hi); // 16 elements of y's higher 8-bit
-        xx = _mm256_xor_si256(xx, x); // combine high and low to construct 16 elements of x's 16-bit
-        yy = _mm256_xor_si256(yy, y); // combine high and low to construct 16 elements of x's 16-bit
+		x = _mm256_shuffle_epi8(tab->lo[2], i2);
+		y = _mm256_shuffle_epi8(tab->hi[2], i2);
+		xx = _mm256_xor_si256(xx, x);
+		yy = _mm256_xor_si256(yy, y);
 
-        lo = _mm256_shuffle_epi8(tab->lo[1], i1);
-        hi = _mm256_shuffle_epi8(tab->hi[1], i1);
-        x = _mm256_and_si256(lo, mask_lo);
-        y = _mm256_srli_epi16(lo, 8);
-        xx = _mm256_xor_si256(xx, x);
-        yy = _mm256_xor_si256(yy, y);
-        x = _mm256_slli_epi16(hi, 8);
-        y = _mm256_and_si256(hi, mask_hi);
-        xx = _mm256_xor_si256(xx, x);
-        yy = _mm256_xor_si256(yy, y);
+		x = _mm256_shuffle_epi8(tab->lo[3], i3);
+		y = _mm256_shuffle_epi8(tab->hi[3], i3);
+		xx = _mm256_xor_si256(xx, x);
+		yy = _mm256_xor_si256(yy, y);
 
-        lo = _mm256_shuffle_epi8(tab->lo[2], i2);
-        hi = _mm256_shuffle_epi8(tab->hi[2], i2);
-        x = _mm256_and_si256(lo, mask_lo);
-        y = _mm256_srli_epi16(lo, 8);
-        xx = _mm256_xor_si256(xx, x);
-        yy = _mm256_xor_si256(yy, y);
-        x = _mm256_slli_epi16(hi, 8);
-        y = _mm256_and_si256(hi, mask_hi);
-        xx = _mm256_xor_si256(xx, x);
-        yy = _mm256_xor_si256(yy, y);
+		// interleave the bytes to get words
+		lo = _mm256_unpacklo_epi8(xx, yy);
+		hi = _mm256_unpackhi_epi8(xx, yy);
 
-        lo = _mm256_shuffle_epi8(tab->lo[3], i3);
-        hi = _mm256_shuffle_epi8(tab->hi[3], i3);
-        x = _mm256_and_si256(lo, mask_lo);
-        y = _mm256_srli_epi16(lo, 8);
-        xx = _mm256_xor_si256(xx, x);
-        yy = _mm256_xor_si256(yy, y);
-        x = _mm256_slli_epi16(hi, 8);
-        y = _mm256_and_si256(hi, mask_hi);
-        xx = _mm256_xor_si256(xx, x);
-        yy = _mm256_xor_si256(yy, y);
+		x = _mm256_loadu_si256((const __m256i *)(dst + i     ));
+		y = _mm256_loadu_si256((const __m256i *)(dst + i + 16));
+		x = _mm256_xor_si256(x, lo);
+		y = _mm256_xor_si256(y, hi);
+		_mm256_storeu_si256((__m256i *)(dst + i     ), x);
+		_mm256_storeu_si256((__m256i *)(dst + i + 16), y);
+	}
 
-        x = _mm256_loadu_si256((const __m256i *)(dst + i     ));
-        y = _mm256_loadu_si256((const __m256i *)(dst + i + 16));
-        x = _mm256_xor_si256(x, xx);
-        y = _mm256_xor_si256(y, yy);
-        _mm256_storeu_si256((__m256i *)(dst + i     ), x);
-        _mm256_storeu_si256((__m256i *)(dst + i + 16), y);
-    }
-
-    // process rest 32-bytes
-    if (i + 16 <= n) {
-        __m256i a = _mm256_loadu_si256((const __m256i *)(src + i));
-        __m256i b = nibmul16(tab, a);
-        __m256i c = _mm256_loadu_si256((const __m256i *)(dst + i));
-        __m256i d = _mm256_xor_si256(b, c);
-        _mm256_storeu_si256((__m256i *)(dst + i), d);
-    }
+	// process rest 32-bytes
+	if (i + 16 <= n) {
+		__m256i a = _mm256_loadu_si256((const __m256i *)(src + i));
+		__m256i b = nibmul16(tab, a);
+		__m256i c = _mm256_loadu_si256((const __m256i *)(dst + i));
+		__m256i d = _mm256_xor_si256(b, c);
+		_mm256_storeu_si256((__m256i *)(dst + i), d);
+	}
 }
 
 void gf16_avx2_mul_and_xor(
@@ -447,9 +393,9 @@ void gf16_avx2_mul_and_xor(
         gf16_t                 c,
         size_t                 n)
 {
-    //gf16_avx2_nibmul_and_xor(dst, src, &gf16_nibtab_avx2[c], n);
+    gf16_avx2_nibmul_and_xor(dst, src, &gf16_nibtab_avx2[c], n);
 
-    gf16_nibtab_avx2_t tab = gf16_avx2_gen_nibtab_fly(c); // generate nibble tables on the fly
-    gf16_avx2_nibmul_and_xor(dst, src, &tab, n);
-    //gf16_avx2_nibmul32_and_xor(dst, src, &tab, n); // process 64-bytes per loop
+    //gf16_nibtab_avx2_t tab = gf16_avx2_gen_nibtab_fly(c); // generate nibble tables on the fly
+    //gf16_avx2_nibmul_and_xor(dst, src, &tab, n);
+    //gf16_avx2_nibmul32_and_xor(dst, src, &tab, n); // process 32 words per loop
 }

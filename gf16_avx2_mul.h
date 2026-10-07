@@ -47,4 +47,11 @@ extern void gf16_avx2_nibmul_and_xor(
     const gf16_nibtab_avx2_t* tab,
     size_t                    n);
 
+// This processes 32 words per loop.
+extern void gf16_avx2_nibmul32_and_xor(
+    gf16_t *restrict          dst,
+    const gf16_t *restrict    src,
+    const gf16_nibtab_avx2_t* tab,
+    size_t                    n);
+
 #endif  // ndef GF16_AVX2_MUL_INCLUDED
