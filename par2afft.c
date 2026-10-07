@@ -46,6 +46,7 @@ Copyright (c) 2019 win32ports
 #include <stdlib.h>
 #include <inttypes.h>
 #include <string.h>
+#include <time.h>
 
 #define CRC32_LENGTH 4
 
@@ -1085,12 +1086,20 @@ int main(int argc, char *argv[]) {
     if (reserve_output_slices((int)arg_output_blocks) != 0) goto fail;
 
     // Generate the actual recovery blocks. This is where most time is spent.
+    clock_t time_encode = clock();
     if (arg_batch) {
         generate_recovery_data_batch();
     } else {
         generate_recovery_data();
     }
+    time_encode = clock() - time_encode;
     if (finalize_output_slices((int)arg_output_blocks) != 0) goto fail;
+
+    // Required time to encode (This doesn't include file access time.)
+    double elapsed_secs = (double) time_encode / CLOCKS_PER_SEC;
+    double throughput = (double)(arg_block_size * arg_input_blocks) / (1 << 20) / elapsed_secs;
+    printf("Time elapsed: %.6f s\n", elapsed_secs);
+    printf("Throughput: %.3f MiB/s\n", throughput); // MiB = Mebibyte = 2**20
 
     exit_status = 0;
     goto finish;
