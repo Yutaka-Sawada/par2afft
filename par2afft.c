@@ -565,7 +565,7 @@ static void generate_recovery_data() {
             const struct InputSlice *s = &input_blocks[i];
             a[s->constant] = s->elems[j];
         }
-        gf16_vt_mul(a, y);
+        gf16_vt_mul(y, a);
         for (int i = 0; i < arg_output_blocks; ++i) {
             struct RecoverySlicePacketBody *body = &recovery_blocks[i]->body;
             body->elems[j] = y[body->exponent];
