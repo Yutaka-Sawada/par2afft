@@ -26,8 +26,9 @@
 
 #define CRC32_LENGTH 4
 
-#define MAX_BLOCK_COUNT 32768
-#define MAX_FILE_COUNT MAX_BLOCK_COUNT
+#define MAX_INPUT_BLOCK_COUNT       32768
+#define MAX_RECOVERY_BLOCK_COUNT    65535
+#define MAX_INPUT_FILE_COUNT        MAX_INPUT_BLOCK_COUNT
 
 // Note: buffer size must be a multiple of 4.
 static const char creator_string[16] = "par2afft 0.0";
@@ -59,7 +60,7 @@ struct PacketHeader {
 struct MainPacketBody {
     uint64_t slice_size;
     uint32_t file_count;
-    struct Md5 file_ids[MAX_FILE_COUNT];
+    struct Md5 file_ids[MAX_INPUT_FILE_COUNT];
 } __attribute__((packed));
 
 struct MainPacket {
@@ -123,13 +124,13 @@ struct InputSlice {
 
 static size_t pagesize;
 
-static struct InputFile input_files[MAX_FILE_COUNT];
+static struct InputFile input_files[MAX_INPUT_FILE_COUNT];
 
 static int input_file_count = 0;
 
-static struct InputSlice input_blocks[MAX_BLOCK_COUNT];
+static struct InputSlice input_blocks[MAX_INPUT_BLOCK_COUNT];
 
-static struct RecoverySlicePacket *recovery_blocks[MAX_BLOCK_COUNT];
+static struct RecoverySlicePacket *recovery_blocks[MAX_RECOVERY_BLOCK_COUNT];
 
 static struct Md5 recovery_set_id;
 
@@ -403,7 +404,7 @@ static int open_input_file(const char *filename) {
         return -1;
     }
 
-    if (input_file_count >= MAX_FILE_COUNT) {
+    if (input_file_count >= MAX_INPUT_FILE_COUNT) {
         fprintf(stderr, "Too many input files!\n");
         return -1;
     }
@@ -639,7 +640,7 @@ static void init_input_constants() {
         elem <<= 1;
 		if (elem & 65536) elem ^= GF16_POLY;
     }
-    assert(j == MAX_BLOCK_COUNT);
+    assert(j == MAX_INPUT_BLOCK_COUNT);
 }
 
 static int is_prefix(const char *prefix, const char *full) {
@@ -759,7 +760,7 @@ int parse_arguments(int argc, char *argv[]) {
             return -1;
         } else {
             arg_input_blocks = calculate_block_count(arg_block_size);
-            if (arg_input_blocks > MAX_BLOCK_COUNT) {
+            if (arg_input_blocks > MAX_INPUT_BLOCK_COUNT) {
                 fprintf(stderr, "Too many input blocks (%lld) for block size!\n", arg_input_blocks);
                 return -1;
             }
@@ -767,7 +768,7 @@ int parse_arguments(int argc, char *argv[]) {
     } else if (arg_block_size != -1) {
         fprintf(stderr, "Cannot set both block size (-s) and block count (-b)\n");
         return -1;
-    } else if (arg_input_blocks < 1 || arg_input_blocks > MAX_BLOCK_COUNT) {
+    } else if (arg_input_blocks < 1 || arg_input_blocks > MAX_INPUT_BLOCK_COUNT) {
         fprintf(stderr, "Invalid input block count: %lld\n", arg_input_blocks);
         return -1;
     } else if (arg_input_blocks < nonempty_files) {
@@ -786,7 +787,7 @@ int parse_arguments(int argc, char *argv[]) {
                 (long long) calculated_block_count, arg_input_blocks);
         arg_input_blocks = calculated_block_count;
     }
-    if (calculated_block_count > MAX_BLOCK_COUNT) {
+    if (calculated_block_count > MAX_INPUT_BLOCK_COUNT) {
         fprintf(stderr, "Calculated block count (%lld) too high!\n", calculated_block_count);
         return -1;
     }
@@ -803,14 +804,14 @@ int parse_arguments(int argc, char *argv[]) {
     } else if (arg_redundancy != -1) {
         fprintf(stderr, "Cannot set both redundancy (-r) and recovery block count (-c)\n");
         return -1;
-    } else if (arg_output_blocks < 0 || arg_output_blocks > MAX_BLOCK_COUNT) {
-        fprintf(stderr, "Invalid recovery block count: %lld\n", arg_input_blocks);
+    } else if (arg_output_blocks < 0 || arg_output_blocks > MAX_RECOVERY_BLOCK_COUNT) {
+        fprintf(stderr, "Invalid recovery block count: %lld\n", arg_output_blocks);
         return -1;
     }
-    if (arg_output_start < 0 || arg_output_start > MAX_BLOCK_COUNT) {
+    if (arg_output_start < 0 || arg_output_start > MAX_RECOVERY_BLOCK_COUNT - arg_output_blocks) {
         fprintf(stderr, "Invalid recovery block start: %lld (must be between 0 "
             "and %lld when using %lld recovery blocks)\n",
-            arg_output_start, MAX_BLOCK_COUNT - arg_output_blocks, arg_output_blocks);
+            arg_output_start, MAX_RECOVERY_BLOCK_COUNT - arg_output_blocks, arg_output_blocks);
         return -1;
     }
 
