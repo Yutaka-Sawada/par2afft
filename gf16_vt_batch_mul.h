@@ -25,7 +25,9 @@ void gf16_vt_batch_mul(
     const gf16_t *const restrict a[restrict static GF16_ORDER],
     size_t width);
 
-// TODO: document this
+// In-place version of gf16_vt_batch_mul() which requires the input data is
+// copied into the destination buffers, so that a[i] contains the input row
+// with index cantor_permutation[i].
 void gf16_vt_batch_mul_inplace(
     gf16_t *const restrict a[restrict static GF16_ORDER],
     size_t width);
