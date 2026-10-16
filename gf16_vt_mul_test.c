@@ -7,6 +7,61 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef SUBSPACE_POLY_LUT
+#define SUBSPACE_POLY_LUT 1
+#endif
+
+#if SUBSPACE_POLY_LUT
+static gf16_t subspace_poly_eval_lo[16][256];
+static gf16_t subspace_poly_eval_hi[16][256];
+
+// Faster version of subspace_poly_eval() using a split lookup table.
+//
+// This works because A(x) = x^2 + x is linear in fields of characteristic 2:
+//
+//  A(x + y) = (x + y)^2 + (x + y)
+//           = x^2 + 2xy + y^2 + x + y      (note 2xy vanishes in GF(2))
+//           = x^2 + x + y^2 + y
+//           = A(x) + A(y)
+//
+// Note: unlike the original implementation, this one requires i < 16.
+gf16_t subspace_poly_eval(unsigned i, gf16_t x)
+{
+    return
+        subspace_poly_eval_lo[i][x & 0xff] ^
+        subspace_poly_eval_hi[i][x >> 8];
+}
+
+static void build_subspace_poly_eval_tables(void)
+{
+    for (int b = 0; b < 256; ++b) {
+        subspace_poly_eval_lo[0][b] = b;
+        subspace_poly_eval_hi[0][b] = b << 8;
+    }
+
+    for (int i = 1; i < 16; ++i) {
+        for (int b = 0; b < 256; ++b) {
+            gf16_t x_lo = subspace_poly_eval_lo[i - 1][b];
+            subspace_poly_eval_lo[i][b] = gf16_sqr(x_lo) ^ x_lo;
+
+            gf16_t x_hi = subspace_poly_eval_hi[i - 1][b];
+            subspace_poly_eval_hi[i][b] = gf16_sqr(x_hi) ^ x_hi;
+        }
+    }
+}
+
+#else  // !SUBSPACE_POLY_LUT
+
+/* Evaluate s_i(x) = A^i(x), where A(x)=x^2+x. */
+gf16_t subspace_poly_eval(unsigned i, gf16_t x)
+{
+    for (unsigned r = 0; r < i; ++r)
+        x = gf16_sqr(x) ^ x;
+    return x;
+}
+
+#endif
+
 typedef struct {
     unsigned count;
     uint32_t exponent[GF16_BITS];
@@ -73,6 +128,39 @@ static void monomial_to_novel_rec(gf16_t *a, unsigned m)
     monomial_to_novel_rec(a,     m - 1);
     monomial_to_novel_rec(a + h, m - 1);
 }
+/*
+ * Transpose C^T.
+ *
+ * Forward division uses operations
+ *
+ *   a[t+e] ^= a[h+t]
+ *
+ * in descending t order.  Transposition reverses operation order and swaps
+ * source/destination:
+ *
+ *   a[h+t] ^= a[t+e]
+ *
+ * in ascending t order.  Because forward C recurses after division, C^T
+ * recurses first and applies the transposed division afterward.
+ */
+static void monomial_to_novel_transpose_rec(gf16_t *a, unsigned m)
+{
+    if (m == 0)
+        return;
+
+    const unsigned i = m - 1;
+    const uint32_t h = 1u << i;
+
+    monomial_to_novel_transpose_rec(a,     m - 1);
+    monomial_to_novel_transpose_rec(a + h, m - 1);
+
+    for (uint32_t t = 0; t < h; ++t) {
+        gf16_t c = a[h + t];
+        for (unsigned r = 0; r < shape[i].count; ++r)
+            c ^= a[t + shape[i].exponent[r]];
+        a[h + t] = c;
+    }
+}
 
 /*
  * Input is in novel basis for dimension m.
@@ -105,6 +193,59 @@ static void additive_fft(gf16_t *a, unsigned m, gf16_t alpha)
 
     additive_fft(a,     m - 1, alpha);
     additive_fft(a + h, m - 1, alpha ^ cantor_beta[i]);
+}
+
+/*
+ * Exact transpose of additive_fft().
+ *
+ * Transpose of
+ *   L = f0 + c*f1
+ *   R = L + f1
+ * is
+ *   f0' = L' + R'
+ *   f1' = c*(L'+R') + R'.
+ */
+static void additive_fft_transpose_rec(gf16_t *a, unsigned m, gf16_t alpha)
+{
+    if (m == 1) {
+        const gf16_t c = alpha;
+        for (uint32_t t = 0; t < 1; ++t) {
+            const gf16_t L = a[t];
+            const gf16_t R = a[1 + t];
+            const gf16_t f0 = L ^ R;
+            const gf16_t f1 = gf16_mul(c, f0) ^ R;
+            a[t]     = f0;
+            a[1 + t] = f1;
+        }
+        return;
+    }
+
+    const unsigned i = m - 1;
+    const uint32_t h = 1u << i;
+
+    /* Reverse the forward recursion first. */
+    additive_fft_transpose_rec(a,     m - 1, alpha);
+    additive_fft_transpose_rec(a + h, m - 1, alpha ^ cantor_beta[i]);
+
+    const gf16_t c = subspace_poly_eval(i, alpha);
+
+    for (uint32_t t = 0; t < h; ++t) {
+        const gf16_t L = a[t];
+        const gf16_t R = a[h + t];
+        const gf16_t f0 = L ^ R;
+        const gf16_t f1 = gf16_mul(c, f0) ^ R;
+        a[t]     = f0;
+        a[h + t] = f1;
+    }
+}
+
+void gf16_vt_mul_rec(gf16_t y[GF16_ORDER], const gf16_t a[GF16_ORDER]) {
+    /* P: gather external field-label order into Cantor-coordinate order. */
+    for (uint32_t j = 0; j < 65536; ++j)
+        y[j] = a[cantor_permutation[j]];
+
+    additive_fft_transpose_rec(y, 16, 0);
+    monomial_to_novel_transpose_rec(y, 16);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -174,10 +315,11 @@ static gf16_t dot_product(const gf16_t *a, const gf16_t *b)
 int gf16_vt_mul_test() {
     gf16_t *a    = malloc(GF16_ORDER * sizeof(gf16_t));
     gf16_t *y    = malloc(GF16_ORDER * sizeof(gf16_t));
+    gf16_t *y2   = malloc(GF16_ORDER * sizeof(gf16_t));
     gf16_t *c    = malloc(GF16_ORDER * sizeof(gf16_t));
     gf16_t *Vc   = malloc(GF16_ORDER * sizeof(gf16_t));
 
-    if (!a || !y || !c || !Vc) {
+    if (!a || !y || !y2 || !c || !Vc) {
         fprintf(stderr, "allocation failed\n");
         return 2;
     }
@@ -224,10 +366,9 @@ int gf16_vt_mul_test() {
      */
     printf("\nTest 2: pseudorandom vector, selected direct checks\n");
     uint64_t rand_state = 123456789;
-    w1rand_fill(a, GF16_ORDER * sizeof(gf16_t), &rand_state);
+    w1rand_fill(a, sizeof(gf16_t) * GF16_ORDER, &rand_state);
 
     gf16_vt_mul(y, a);
-
     static const uint32_t ks[] = {
         0, 1, 2, 3, 7, 15, 16, 31,
         255, 256, 257, 1023, 4096, 32767,
@@ -235,6 +376,17 @@ int gf16_vt_mul_test() {
     };
     check_selected_outputs(a, y, ks, sizeof(ks) / sizeof(ks[0]));
     printf("  PASS: selected outputs match the direct definition.\n");
+
+    /*
+     * Test 2.5: compare result against recursive implementation);
+     */
+    printf("\nTest 2.5: compare against recursive implementation\n");
+    gf16_vt_mul_rec(y2, a);
+    if (memcmp(y, y2, sizeof(gf16_t) * GF16_ORDER) != 0) {
+        fprintf(stderr, "FAIL\n");
+        return 1;
+    }
+    printf("  PASS: all outputs match the recursive implementation.\n");
 
     /*
      * Test 3: exact transpose identity
@@ -262,6 +414,7 @@ int gf16_vt_mul_test() {
 
     free(a);
     free(y);
+    free(y2);
     free(c);
     free(Vc);
 
@@ -273,6 +426,9 @@ int main()
 {
     gf16_init();
     gf16_vt_mul_init();
+#if SUBSPACE_POLY_LUT
+    build_subspace_poly_eval_tables();
+#endif
     build_subspace_shapes();
 
     /* Print out beta table
