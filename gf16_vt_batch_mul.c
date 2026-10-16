@@ -334,46 +334,45 @@ void gf16_vt_batch_monomial_to_novel(
 
 #if AVX2_MUL_AND_XOR
 
-static gf16_nibtab_avx2_t nibtab_for_afft[GF16_ORDER];
+static gf16_nibtab_avx2_t nibtab_for_afft[GF16_ORDER / 2];
 
 #endif  // AVX2_MUL_AND_XOR
 
 __attribute__((always_inline))
 static inline void gf16_vt_batch_afft_level_i(
         const int i, gf16_t *const restrict a[GF16_ORDER], size_t width) {
-    const uint32_t n = GF16_ORDER;
 
-    const int h          = 1 << i;
-    const int block_size = 2 << i;
+    const int h           = 1 << i;
+    const int block_size  = 1 << (i + 1);
+    const int block_count = 1 << (GF16_BITS - 1 - i);
 
     // This can also be inlined in the loop below, but doing it separately can
     // be optimized better by the compiler.
-    for (gf16_t *const restrict *block = a; block < a + n; block += block_size) {
-        for (uint32_t t = 0; t < h; ++t)
+    for (int i = 0; i < block_count; ++i) {
+        gf16_t *const restrict *block = a + i * block_size;
+        for (int t = 0; t < h; ++t)
             xorv_1(block[t], block[h + t], width);
     }
 
 #if !AVX2_MUL_AND_XOR
-    const gf16_t *p = subspace_poly_for_afft + SUBSPACE_POLY_OFFSET(i);
-    for (gf16_t *const restrict *block = a; block < a + n; block += block_size) {
-        // Lookup table multiplication
-        const gf16_t log_c = *p++;
-        if (log_c != 65535) {
-            for (uint32_t t = 0; t < h; ++t) {
-                const gf16_t *src = block[t];
-                gf16_t *dest = block[h + t];
-                for (int i = 0; i < width; ++i) {
-                    dest[i] ^= gf16_mul_log(src[i], log_c);
-                }
+    // Multiply using GF16 lookup tables
+    for (int i = 1; i < block_count; ++i) {
+        const gf16_t log_c = subspace_poly_for_afft[i];
+        gf16_t *const restrict *block = a + i * block_size;
+        for (int t = 0; t < h; ++t) {
+            const gf16_t *src = block[t];
+            gf16_t *dest = block[h + t];
+            for (int i = 0; i < width; ++i) {
+                dest[i] ^= gf16_mul_log(src[i], log_c);
             }
         }
     }
 #else  // AVX2_MUL_AND_XOR
-    const gf16_nibtab_avx2_t *p = nibtab_for_afft + SUBSPACE_POLY_OFFSET(i);
-    for (gf16_t *const restrict *block = a; block < a + n; block += block_size) {
-        // Lookup table multiplication
-        const gf16_nibtab_avx2_t *tab = p++;
-        for (uint32_t t = 0; t < h; ++t) {
+    // Multiply using AVX2 nibble tables
+    for (int i = 1; i < block_count; ++i) {
+        const gf16_nibtab_avx2_t *tab = &nibtab_for_afft[i];
+        gf16_t *const restrict *block = a + i * block_size;
+        for (int t = 0; t < h; ++t) {
             gf16_avx2_nibmul_and_xor(block[h + t], block[t], tab, width);
         }
     }
@@ -409,9 +408,9 @@ void gf16_vt_batch_mul_init() {
     gf16_vt_mul_init();
 
 #if AVX2_MUL_AND_XOR
-    for (int i = 0; i < GF16_ORDER - 1; ++i) {
-        gf16_t log_c = subspace_poly_for_afft[i];
-        gf16_t c = log_c == GF16_ORDER - 1 ? 0 : gf16_exp(log_c);
+    nibtab_for_afft[0] = gf16_avx2_gen_nibtab(0);
+    for (int i = 1; i < GF16_ORDER / 2; ++i) {
+        gf16_t c = gf16_exp(subspace_poly_for_afft[i]);
         nibtab_for_afft[i] = gf16_avx2_gen_nibtab(c);
     }
 #endif

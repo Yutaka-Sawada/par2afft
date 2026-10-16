@@ -28,7 +28,6 @@ static subspace_shape_t shape[GF16_BITS];
  * Thus s_i is sparse.  We only need its lower exponents, excluding its
  * leading X^(2^i) term.
  */
-
 static void build_subspace_shapes()
 {
     for (unsigned i = 0; i < GF16_BITS; ++i) {
@@ -275,6 +274,18 @@ int main()
     gf16_init();
     gf16_vt_mul_init();
     build_subspace_shapes();
+
+    /* Print out beta table
+    for (int i = 0; i < GF16_BITS; ++i) {
+        printf("cantor_beta[%5d] = %04x\n", i, cantor_beta[i]);
+    }
+    */
+
+    /* Print out subspace polynomials
+    for (int i = 0; i < GF16_ORDER / 2; ++i) {
+        printf("subspace_poly_for_afft[%5d] = %04x\n", i, subspace_poly_for_afft[i]);
+    }
+    */
 
     /* Print out shape table contents for manual unrolling.
     for (int i = 0; i < GF16_BITS; ++i) {

@@ -3,24 +3,17 @@
 
 #include "gf16.h"
 
-extern gf16_t cantor_permutation[GF16_ORDER];
 extern gf16_t cantor_beta[GF16_BITS];
+extern gf16_t cantor_permutation[GF16_ORDER];
 
 // Logarithms of the constants used in the AFFT, in order of usage.
 //
-// For a recusion level i and block index j, define:
-//
-//  alpha = the XOR sum of beta[k] of all bits k set in j
-//  c     = subspace_poly_eval(i, alpha)
-//  log_c = gf16_log(c) if c != 0 or 65535 otherwise
-//
-// Then subspace_poly_for_afft[SUBSPACE_POLY_OFFSET(i) + j] = log_c
+// Note that all constants are nonzero, except the first one.
+// subspace_poly_for_afft[0] == 65535 to indicate the logarithm is invalid.
 //
 // For details, see build_subspace_poly_for_afft() where this table is populated
 // or additive_fft_transpose_level_i() where it is used.
-extern gf16_t subspace_poly_for_afft[GF16_ORDER - 1];
-
-#define SUBSPACE_POLY_OFFSET(level)  (GF16_ORDER - (1 << (GF16_BITS - level)))
+extern gf16_t subspace_poly_for_afft[GF16_ORDER / 2];
 
 void gf16_vt_mul_init();
 

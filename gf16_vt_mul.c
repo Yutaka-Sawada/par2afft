@@ -16,21 +16,15 @@
 #define SUBSPACE_POLY_LUT 1
 #endif
 
-gf16_t cantor_permutation[GF16_ORDER];
-
 gf16_t cantor_beta[GF16_BITS];
-
-// beta_prefix[i] = is the XOR sum of the first i elements of beta
-// for 0 <= i <= 16. Additionally, we have beta_prefix[17] = beta_prefix[16]
-// which allows us to drop bounds checking.
-static gf16_t beta_prefix[GF16_BITS + 2];
+gf16_t cantor_permutation[GF16_ORDER];
 
 #if SUBSPACE_POLY_LUT
 static gf16_t subspace_poly_eval_lo[16][256];
 static gf16_t subspace_poly_eval_hi[16][256];
 #endif
 
-gf16_t subspace_poly_for_afft[GF16_ORDER - 1];
+gf16_t subspace_poly_for_afft[GF16_ORDER / 2];
 
 /*
  * Full-field transpose Vandermonde example over
@@ -111,11 +105,6 @@ static void generate_cantor_basis()
 
     for (unsigned i = 1; i < GF16_BITS; ++i)
         assert((gf16_sqr(cantor_beta[i]) ^ cantor_beta[i]) == cantor_beta[i - 1]);
-
-    beta_prefix[0] = 0;
-    for (unsigned j = 0; j < GF16_BITS; ++j)
-        beta_prefix[j + 1] = beta_prefix[j] ^ cantor_beta[j];
-    beta_prefix[GF16_BITS + 1] = beta_prefix[GF16_BITS];
 }
 
 static void build_cantor_permutation()
@@ -182,22 +171,20 @@ gf16_t subspace_poly_eval(unsigned i, gf16_t x)
 #endif
 
 static void build_subspace_poly_for_afft(void) {
-    gf16_t *p = subspace_poly_for_afft;
-    for (int i = 0; i < GF16_BITS; ++i) {
-        assert(p == subspace_poly_for_afft + SUBSPACE_POLY_OFFSET(i));
-        const int block_count = GF16_ORDER >> (i + 1);
-        gf16_t alpha = 0;
-        for (int block_index = 0; block_index < block_count; ++block_index) {
-            gf16_t c = subspace_poly_eval(i, alpha);
-            gf16_t log_c = c == 0 ? 65535 : gf16_log(c);
-            *p++ = log_c;
+    // First multiplier is 0; since the table stores logarithms, store 65535 to
+    // mark it as invalid.
+    subspace_poly_for_afft[0] = 65535;
 
-            // Invariant: block_alpha is the XOR sum of beta[j] for all bits j set in block_index.
-            const unsigned z = __builtin_ctz(block_index + 1);
-            alpha ^= beta_prefix[i + z + 2] ^ beta_prefix[i + 1];
+    gf16_t alpha = 0;
+    for (int i = 1; i < GF16_ORDER / 2; ++i) {
+        // Invariant: alpha = sum of beta[j] for all bits j that are 1 in (i * 2)
+        for (int j = 0; ; ++j) {
+            alpha ^= cantor_beta[j + 1];
+            if (i & (1 << j)) break;
         }
+        assert(alpha != 0);
+        subspace_poly_for_afft[i] = gf16_log(alpha);
     }
-    assert(p - subspace_poly_for_afft == GF16_ORDER - 1);
 }
 
 #if !ITERATIVE_AFFT
@@ -476,25 +463,24 @@ static void additive_fft_transpose_rec(gf16_t *a, unsigned m, gf16_t alpha)
 
 __attribute__((always_inline))
 static inline void additive_fft_transpose_level_i(gf16_t a[GF16_ORDER], const int i) {
-    const uint32_t n = GF16_ORDER;
-
-    const int h          = 1 << i;
-    const int block_size = 2 << i;
+    const int h           = 1 << i;
+    const int block_size  = 1 << (i + 1);
+    const int block_count = 1 << (GF16_BITS - 1 - i);
 
     // This can also be inlined in the loop below, but doing it separately can
     // be optimized better by the compiler.
-    for (gf16_t *block = a; block < a + n; block += block_size) {
+    for (int i = 0; i < block_count; ++i) {
+        gf16_t *block = a + i * block_size;
         for (uint32_t t = 0; t < h; ++t)
             block[t] ^= block[h + t];
     }
 
-    const gf16_t *p = subspace_poly_for_afft + SUBSPACE_POLY_OFFSET(i);
-    for (gf16_t *block = a; block < a + n; block += block_size) {
-        const gf16_t log_c = *p++;
-        if (log_c != 65535) {
-            for (uint32_t t = 0; t < h; ++t)
-                block[h + t] ^= gf16_mul_log(block[t], log_c);
-        }
+    // Note: skip block 0 because the multiplication constant is 0
+    for (int i = 1; i < block_count; ++i) {
+        gf16_t log_c = subspace_poly_for_afft[i];
+        gf16_t *block = a + i * block_size;
+        for (uint32_t t = 0; t < h; ++t)
+            block[h + t] ^= gf16_mul_log(block[t], log_c);
     }
 }
 
