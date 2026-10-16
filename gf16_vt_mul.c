@@ -9,93 +9,20 @@
 #include <assert.h>
 #include <stdint.h>
 
-gf16_t cantor_beta[GF16_BITS];
+// The cantor chain satisfying:
+//
+//  beta[0] = 1
+//  beta[i-1] = beta[i] * beta[i] + beta[i]   (for all i > 0)
+//
+// See cantor_basis_test.c for how this was generated.
+const gf16_t cantor_beta[GF16_BITS] = {
+    0x0001, 0x015f, 0x0145, 0x1db6, 0x0a73, 0xb09b, 0x5190, 0x1c2c,
+    0xb613, 0xf687, 0xf602, 0x57db, 0x061d, 0xa37c, 0x4eec, 0x2000 };
+
 gf16_t cantor_permutation[GF16_ORDER];
 gf16_t subspace_poly_for_afft[GF16_ORDER / 2];
 
-/*
- * Full-field transpose Vandermonde example over
- *
- *   GF(2^16) = GF(2)[z] / (z^16 + z^12 + z^3 + z + 1)
- *
- * polynomial encoded as 0x1100B.  A field element is the 16-bit
- * polynomial-basis representation in z.
- *
- * We compute, for arbitrary a[x], x = 0..65535,
- *
- *   y[k] = sum_{x in GF(2^16)} a[x] * x^k,   k = 0..65535.
- *
- * Equivalently y = V^T a where V[x,k] = x^k.
- *
- * Internally:
- *   V = P^{-1} F C
- *
- * where
- *   C : monomial coefficients -> Cantor novel-basis coefficients,
- *   F : additive FFT, output in Cantor-coordinate point order,
- *   P : permutation between polynomial-basis field labels and Cantor order.
- *
- * Hence
- *   V^T = C^T F^T P.
- *
- * The monomial<->novel conversion is recursive and multiplication-free.
- * No 65536-entry "lower[]" table is used.
- */
-
-/* Absolute trace GF(2^16) -> GF(2). */
-static gf16_t gf16_trace(gf16_t a)
-{
-    gf16_t t = 0;
-    gf16_t x = a;
-
-    for (unsigned i = 0; i < GF16_BITS; ++i) {
-        t ^= x;
-        x = gf16_sqr(x);
-    }
-
-    assert(t == 0 || t == 1);
-    return t;
-}
-
-/* ------------------------------------------------------------------------- */
-/* Cantor basis generation                                                   */
-/* ------------------------------------------------------------------------- */
-
-/*
- * Let A(x) = x^2 + x.  A Cantor chain satisfies
- *
- *   beta[0] = 1,
- *   A(beta[i]) = beta[i-1].
- *
- * For extension degree 16, pick any absolute-trace-one beta[15], then
- * repeatedly apply A downward.  We choose the numerically smallest trace-one
- * element so the result is deterministic and reproducible.
- */
-static void generate_cantor_basis()
-{
-    gf16_t top = 0;
-
-    for (uint32_t x = 1; x < GF16_ORDER; ++x) {
-        if (gf16_trace((gf16_t)x) == 1) {
-            top = (gf16_t)x;
-            break;
-        }
-    }
-
-    assert(top != 0);
-
-    cantor_beta[GF16_BITS - 1] = top;
-    for (unsigned i = GF16_BITS - 1; i > 0; --i)
-        cantor_beta[i - 1] = gf16_sqr(cantor_beta[i]) ^ cantor_beta[i];
-
-    assert(cantor_beta[0] == 1);
-
-    for (unsigned i = 1; i < GF16_BITS; ++i)
-        assert((gf16_sqr(cantor_beta[i]) ^ cantor_beta[i]) == cantor_beta[i - 1]);
-}
-
-static void build_cantor_permutation()
-{
+static void build_cantor_permutation() {
     cantor_permutation[0] = 0;
     for (uint32_t j = 1; j < GF16_ORDER; ++j) {
         const unsigned b = __builtin_ctz(j);
@@ -364,9 +291,8 @@ void gf16_vt_mul_init() {
     static char initialized = 0;
     if (initialized) return;
 
-    generate_cantor_basis();
-    build_subspace_poly_for_afft();
     build_cantor_permutation();
+    build_subspace_poly_for_afft();
 
     initialized = 1;
 }

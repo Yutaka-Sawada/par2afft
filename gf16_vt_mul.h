@@ -3,7 +3,7 @@
 
 #include "gf16.h"
 
-extern gf16_t cantor_beta[GF16_BITS];
+extern const gf16_t cantor_beta[GF16_BITS];
 extern gf16_t cantor_permutation[GF16_ORDER];
 
 // Logarithms of the constants used in the AFFT, in order of usage.

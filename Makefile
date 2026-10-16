@@ -42,6 +42,7 @@ MAIN_NAME=par2afft
 
 # Test binaries. Each of these must have a corresponding .c file.
 TEST_NAMES= \
+	cantor_basis_test \
 	crc32_test \
 	gf16_avx2_mul_test \
 	gf16_vt_batch_mul_test \
