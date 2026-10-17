@@ -8,7 +8,7 @@
 #include "gf16_vt_mul.h"
 #include "gf16_vt_batch_mul.h"
 
-#include <openssl/md5.h>
+#include "vendor/md5/md5.h"
 
 #include <fcntl.h>
 #include <sys/stat.h>

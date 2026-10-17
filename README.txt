@@ -30,10 +30,17 @@ Dependencies:
 
     - gmake
     - GCC or Clang
-    - OpenSSL (or compatible like LibreSSL; used for MD5)
+    - optional: OpenSSL (or compatible like LibreSSL) for MD5
 
 Example build commands:
 
 % make build/par2afft    # build par2afft only
 % make all               # build par2afft and tests and benchmarks
 % make all test          # build all and run tests
+
+To link against OpenSSL instead of the vendored MD5 implementation,
+pass HAVE_OPENSSL=1 to make. For example:
+
+% make HAVE_OPENSSL=1 all
+
+The vendored MD5 implementation is around 10% slower than OpenSSL.
