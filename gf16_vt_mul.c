@@ -9,6 +9,17 @@
 #include <assert.h>
 #include <stdint.h>
 
+// replace gcc's __builtin_ctz for MSVC
+#ifdef _MSC_VER
+#include <intrin.h>
+uint32_t __inline __builtin_ctz( uint32_t value )
+{
+    uint32_t trailing_zero = 0;
+    _BitScanForward( &trailing_zero, value );
+    return trailing_zero;
+}
+#endif
+
 // The cantor chain satisfying:
 //
 //  beta[0] = 1
@@ -233,8 +244,12 @@ void monomial_to_novel_transpose(gf16_t a[GF16_ORDER])
     }
 }
 
+#ifdef _MSC_VER // MSVC uses __forceinline instead of always_inline.
+static __forceinline void additive_fft_transpose_level_i(gf16_t a[GF16_ORDER], const int i) {
+#else
 __attribute__((always_inline))
 static inline void additive_fft_transpose_level_i(gf16_t a[GF16_ORDER], const int i) {
+#endif
     const int h           = 1 << i;
     const int block_size  = 1 << (i + 1);
     const int block_count = 1 << (GF16_BITS - 1 - i);
@@ -243,7 +258,7 @@ static inline void additive_fft_transpose_level_i(gf16_t a[GF16_ORDER], const in
     // be optimized better by the compiler.
     for (int i = 0; i < block_count; ++i) {
         gf16_t *block = a + i * block_size;
-        for (uint32_t t = 0; t < h; ++t)
+        for (int t = 0; t < h; ++t)
             block[t] ^= block[h + t];
     }
 
@@ -251,7 +266,7 @@ static inline void additive_fft_transpose_level_i(gf16_t a[GF16_ORDER], const in
     for (int i = 1; i < block_count; ++i) {
         gf16_t log_c = subspace_poly_for_afft[i];
         gf16_t *block = a + i * block_size;
-        for (uint32_t t = 0; t < h; ++t)
+        for (int t = 0; t < h; ++t)
             block[h + t] ^= gf16_mul_log(block[t], log_c);
     }
 }

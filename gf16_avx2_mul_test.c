@@ -82,4 +82,5 @@ int main() {
 
     test_mul();
     test_xor();
+    printf("test end\n");
 }

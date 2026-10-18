@@ -11,12 +11,31 @@
 // so it's best to use any other number for the initial state.
 //
 // From: https://github.com/wangyi-fudan/wyhash
+
+#if defined(_MSC_VER) && defined(_M_X64) // Microsoft Visual C doesn't support __uint128_t.
+#include <intrin.h>
+
+// This is for 64-bit application by Microsoft Visual Studio.
+static inline uint64_t w1rand(uint64_t *s) {
+    uint64_t A, B, lo, hi;
+    const uint64_t c = 0xd07ebc63274654c7ull;
+    *s += c;
+    A = *s;
+    B = *s ^ c;
+    lo = _umul128(A, B, &hi);
+    return hi ^ lo;
+}
+
+#else
+
 static inline uint64_t w1rand(uint64_t *s) {
     const uint64_t c = 0xd07ebc63274654c7ull;
     *s += c;
     __uint128_t t = (__uint128_t) *s * (*s ^ c);
     return (t >> 64) ^ t;
 }
+
+#endif
 
 // Fills `buf` with `len` random bytes.
 //

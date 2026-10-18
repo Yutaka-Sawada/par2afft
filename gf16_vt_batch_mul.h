@@ -1,4 +1,4 @@
-#ifndef GF16_VT_BATCH_MUL
+﻿#ifndef GF16_VT_BATCH_MUL
 #define GF16_VT_BATCH_MUL
 
 #include "gf16.h"
@@ -21,24 +21,51 @@ void gf16_vt_batch_mul_init();
 //
 // `width` must be a multiple of GF16_VT_MIN_BATCH_SIZE
 void gf16_vt_batch_mul(
+#ifdef _MSC_VER
+    gf16_t *const restrict y[GF16_ORDER],
+    const gf16_t *const restrict a[GF16_ORDER],
+#else
     gf16_t *const restrict y[restrict static GF16_ORDER],
     const gf16_t *const restrict a[restrict static GF16_ORDER],
+#endif
     size_t width);
+
+void gf16_vt_batch_mul_skip(
+#ifdef _MSC_VER
+    gf16_t *const restrict y[GF16_ORDER],
+    const gf16_t *const restrict a[GF16_ORDER],
+#else
+    gf16_t *const restrict y[restrict static GF16_ORDER],
+    const gf16_t *const restrict a[restrict static GF16_ORDER],
+#endif
+    size_t width, int input_num, int output_limit);
 
 // In-place version of gf16_vt_batch_mul() which requires the input data is
 // copied into the destination buffers, so that a[i] contains the input row
 // with index cantor_permutation[i].
 void gf16_vt_batch_mul_inplace(
+#ifdef _MSC_VER
+    gf16_t *const restrict a[GF16_ORDER],
+#else
     gf16_t *const restrict a[restrict static GF16_ORDER],
+#endif
     size_t width);
 
 // Exposed for testing:
 void gf16_vt_batch_afft(
+#ifdef _MSC_VER
+    gf16_t *const restrict a[GF16_ORDER],
+#else
     gf16_t *const restrict a[restrict static GF16_ORDER],
+#endif
     size_t width);
 
 void gf16_vt_batch_monomial_to_novel(
+#ifdef _MSC_VER
+    gf16_t *const restrict a[GF16_ORDER],
+#else
     gf16_t *const restrict a[restrict static GF16_ORDER],
+#endif
     size_t width);
 
 #endif  // ndef GF16_VT_BATCH_MUL

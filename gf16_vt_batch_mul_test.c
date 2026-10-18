@@ -112,4 +112,5 @@ int main() {
     monomial_to_novel_test();
     afft_test();
     vt_mul_test();
+    printf("test end\n");
 }
