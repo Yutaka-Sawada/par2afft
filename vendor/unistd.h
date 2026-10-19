@@ -1,4 +1,26 @@
 /*
+header-only Windows implementation of the `<unistd.h>` header.
+
+tested on the following compilers:
+- Visual Studio
+- Clang for Windows (clang-cl)
+- GCC (MinGW)
+
+implements the following functions:
+- access
+- chdir
+- close
+- dup
+- dup2
+- execl
+- execle
+- execlp
+- execp
+- execpe
+- execpp
+- rmdir
+- unlink
+
 MIT License
 Copyright (c) 2019 win32ports
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -16,6 +38,11 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+Yutaka Sawada added some functions below:
+- open
+- ftruncate
+- sysconf
 */
 
 #pragma once
@@ -47,6 +74,9 @@ extern "C" {
 
 #include <sys/stat.h> /* */
 
+/* added for sysconf */
+#include <windows.h>
+
 #ifndef access
 #define access _access
 #endif /* access */
@@ -74,6 +104,14 @@ extern "C" {
 #ifndef close
 #define close _close
 #endif /* close */
+
+#ifndef open
+#define open _open
+#endif /* open to omit _CRT_NONSTDC_NO_WARNINGS */
+
+#ifndef ftruncate // map ftruncate to _chsize_s
+#define ftruncate(fd, length) _chsize_s(fd, length)
+#endif
 
 #ifndef STDIN_FILENO
 #define STDIN_FILENO 0
@@ -304,6 +342,16 @@ extern "C" {
 #ifndef S_ISSOCK
 #define S_ISSOCK(mode) S_ISTYPE(mode, S_IFSOCK)
 #endif /* S_ISSOCK */
+
+// make sysconf function on Windows OS
+#define _SC_PAGESIZE 1
+long sysconf(int name) {
+    SYSTEM_INFO sysInfo;
+    GetSystemInfo(&sysInfo);
+    if (name == _SC_PAGESIZE)
+        return sysInfo.dwPageSize;
+    return -1;
+}
 
 #ifdef __cplusplus
 }
