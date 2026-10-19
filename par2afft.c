@@ -26,9 +26,6 @@ Copyright (c) 2019 win32ports
 */
 #include "vendor/unistd.h"
 
-// for low level IO access
-#include <io.h>
-
 #else // Linux
 #include <sys/mman.h>
 #include <unistd.h>
@@ -1040,20 +1037,6 @@ int parse_arguments(int argc, char *argv[]) {
 
     return 0;
 }
-
-#ifdef _MSC_VER // Windows
-#include <windows.h>
-
-#define _SC_PAGESIZE 1
-
-long sysconf(int name) {
-    SYSTEM_INFO sysInfo;
-    GetSystemInfo(&sysInfo);
-    if (name == _SC_PAGESIZE)
-        return sysInfo.dwPageSize;
-    return -1;
-}
-#endif
 
 int init_pagesize() {
     long res = sysconf(_SC_PAGESIZE);
